@@ -8,17 +8,20 @@ O sistema utiliza autenticação mútua via **mTLS** com o certificado digital d
 
 ## 🚀 Como Funciona o Sistema
 
-O processo é composto por dois passos simples:
+O processo é composto por três fluxos principais:
 
 ```
 [Certificado .pfx/.p12] ➔ convert_pfx.py ➔ [Certificado .pem]
                                                   │
                                                   ▼
 [Período / NSU Inicial] ➔ download_nfse.py ➔ [Downloads de XML e DANFSE PDF]
+
+[XMLs locais ou em lote] ➔ xml_to_pdf.py   ➔ [DANFSE PDF (Conversão Manual)]
 ```
 
 1. **Conversão do Certificado:** O script `convert_pfx.py` extrai a chave privada (desprotegida) e a cadeia de certificados do arquivo original da sua empresa (`.pfx` ou `.p12`) e gera um arquivo consolidado em `.pem` exigido pela biblioteca HTTP do Python.
 2. **Download das Notas:** O script `download_nfse.py` consome a API do governo utilizando o arquivo `.pem` para autenticação de rede (mTLS). As notas são baixadas em lotes sequenciais de até 50 documentos controlados por **NSU (Número Sequencial Único)**, filtradas pelo período escolhido e salvas localmente.
+3. **Conversão Manual de XML para PDF:** O script `xml_to_pdf.py` permite converter arquivos XML já baixados localmente para PDFs (DANFSE) a qualquer momento de forma avulsa ou em lote, sem precisar consultar a API do governo novamente.
 
 ---
 
@@ -56,8 +59,31 @@ python download_nfse.py
 1. Informe o caminho do certificado `.pem` gerado no passo anterior (digite `.` para que o script liste os arquivos `.pem` da pasta atual).
 2. Escolha o ambiente: `1` para Produção ou `2` para Homologação/Testes.
 3. Informe a data inicial e data final do período desejado (Formato: `DD/MM/YYYY`).
-4. Defina o **NSU Inicial** de busca. *Se for a primeira execução do CNPJ no sistema nacional, inicie com `1`. Para buscas futuras, utilize o último NSU impresso pelo script ao final da execução anterior.*
+4. Defina o **NSU Inicial** de busca. *Se for a primeira execução do CNPJ no sistema nacional, inicie com `1`. Para buscas futures, utilize o último NSU impresso pelo script ao final da execução anterior.*
 5. Informe o nome da pasta de destino onde os arquivos serão salvos (padrão: `./notas_fiscais`).
+
+### Passo 4: Converter XMLs Locais para PDF (Opcional)
+Se você já possui os arquivos XML e deseja apenas gerar os PDFs (ou regenerá-los para atualizar as descrições dos serviços):
+```bash
+python xml_to_pdf.py [caminho_entrada] [opções]
+```
+Exemplos de uso:
+- **Converter todos os XMLs pendentes** na pasta padrão (`./notas_fiscais`):
+  ```bash
+  python xml_to_pdf.py
+  ```
+- **Forçar a regeneração** de todos os PDFs (sobrescrevendo os existentes):
+  ```bash
+  python xml_to_pdf.py -f
+  ```
+- **Converter um único arquivo XML específico**:
+  ```bash
+  python xml_to_pdf.py ./notas_fiscais/NFSe_20260605_nsu_369.xml
+  ```
+- **Definir pasta de entrada e pasta de saída personalizadas**:
+  ```bash
+  python xml_to_pdf.py /caminho/origem -o /caminho/destino
+  ```
 
 ---
 

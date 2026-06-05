@@ -66,6 +66,102 @@ def check_install_dependencies():
 
 check_install_dependencies()
 
+if HAS_DANFSE_LIB:
+    class CustomDanfse(Danfse):
+        def _draw_service_provided(self):
+            x_margin = self.l_margin
+            y_margin = self.y
+            page_width = self.epw
+
+            col_width = self.epw / 4
+            section_start_y = y_margin + 5
+
+            # SERVIÇO PRESTADO
+            self.set_font(self.default_font, "B", 9)
+            self.set_xy(x=x_margin + 3, y=section_start_y)
+            self.cell(w=col_width, h=1, text="SERVIÇO PRESTADO", align="L")
+
+            # Código de Tributação Nacional
+            self.set_font(self.default_font, "B", 7)
+            self.set_xy(x=x_margin + 3, y=section_start_y + 4)
+            self.cell(w=col_width, h=3, text="Código de Tributação Nacional", align="L")
+
+            # Código de Tributação Nacional - Valor
+            self.set_font(self.default_font, "", 8)
+            self.set_xy(x=x_margin + 3, y=section_start_y + 7)
+            self.multi_cell(
+                w=col_width,
+                h=2.5,
+                text=self.long_field(
+                    text=self.data["service"]["national_tax_code"],
+                    limit=col_width,
+                ),
+                align="L",
+            )
+
+            # Código de Tributação Municipal
+            self.set_font(self.default_font, "B", 7)
+            self.set_xy(x=x_margin + col_width, y=section_start_y + 4)
+            self.cell(w=col_width, h=3, text="Código de Tributação Municipal", align="L")
+
+            # Código de Tributação Municipal - Valor
+            self.set_font(self.default_font, "", 8)
+            self.set_xy(x=x_margin + col_width, y=section_start_y + 4)
+            self.cell(
+                w=col_width, h=8, text=self.data["service"]["municipal_tax_code"], align="L"
+            )
+
+            # Local da Prestação
+            self.set_font(self.default_font, "B", 7)
+            self.set_xy(x=x_margin + (col_width * 2), y=section_start_y + 4)
+            self.cell(w=col_width, h=3, text="Local da Prestação", align="L")
+
+            # Local da Prestação - Valor
+            self.set_font(self.default_font, "", 8)
+            self.set_xy(x=x_margin + (col_width * 2), y=section_start_y + 4)
+            self.cell(
+                w=col_width, h=8, text=self.data["service"]["place_of_provision"], align="L"
+            )
+
+            # País da Prestação
+            self.set_font(self.default_font, "B", 7)
+            self.set_xy(x=x_margin + (col_width * 3), y=section_start_y + 4)
+            self.cell(w=col_width, h=3, text="País da Prestação", align="L")
+
+            # País da Prestação - Valor
+            self.set_font(self.default_font, "", 8)
+            self.set_xy(x=x_margin + (col_width * 3), y=section_start_y + 4)
+            self.cell(w=col_width, h=8, text=self.data["service"]["country"], align="L")
+
+            # Descrição do Serviço Label
+            self.set_font(self.default_font, "B", 7)
+            self.set_xy(x=x_margin + 3, y=section_start_y + 14)
+            self.cell(w=col_width, h=3, text="Descrição do Serviço", align="L")
+
+            # Descrição do Serviço - Valor (Multi-line)
+            self.set_font(self.default_font, "", 8)
+            self.set_xy(x=x_margin + 3, y=section_start_y + 17.5)
+            self.multi_cell(
+                w=page_width - 6,
+                h=3.5,
+                text=self.data["service"]["description"],
+                align="L",
+            )
+            
+            description_end_y = self.y
+            line_y = max(y_margin + 25, description_end_y + 2)
+
+            self.set_font(self.default_font, "B", 7)
+            self.set_dash_pattern(dash=0, gap=0)
+            self.line(
+                x1=x_margin + 2,
+                y1=line_y,
+                x2=x_margin + page_width - 2,
+                y2=line_y,
+            )
+            
+            self.y = line_y - 6
+
 # Agora podemos importar com segurança
 import requests
 import base64
@@ -303,7 +399,7 @@ def main():
                         if HAS_DANFSE_LIB:
                             pdf_file_path = os.path.join(output_dir, f"{file_base}.pdf")
                             try:
-                                danfse = Danfse(xml=xml_content)
+                                danfse = CustomDanfse(xml=xml_content)
                                 danfse.output(pdf_file_path)
                                 logger.info(f"    -> XML e DANF (PDF) salvos.")
                             except Exception as e:
