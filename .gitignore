@@ -15,3 +15,6 @@ __pycache__/
 venv/
 env/
 .env
+
+# Estado local do coletor (NSU)
+nsu_state.json
