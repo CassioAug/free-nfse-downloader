@@ -1,0 +1,17 @@
+# Ignorar chaves e certificados digitais (Segurança Crítica)
+*.pem
+*.pfx
+*.p12
+
+# Ignorar downloads de notas fiscais, PDFs e arquivos de log
+notas_fiscais/
+
+# Arquivos temporários e de ambiente Python (Recomendado)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.env
