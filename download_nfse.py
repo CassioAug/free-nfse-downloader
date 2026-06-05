@@ -230,6 +230,164 @@ def get_emission_date(xml_str):
         logger.debug(f"Erro ao parsear data do XML: {e}")
     return None
 
+def get_nfse_number(xml_str):
+    """Encontra o número da NFS-e no XML independente do namespace"""
+    try:
+        root = ET.fromstring(xml_str)
+        elem = None
+        for el in root.iter():
+            tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+            if tag_local.lower() in ['nnfse', 'numeronfse', 'numero']:
+                elem = el
+                break
+        if elem is not None and elem.text:
+            return elem.text.strip()
+    except Exception as e:
+        logger.debug(f"Erro ao parsear número do XML: {e}")
+    return None
+
+import json
+
+def load_last_nsu(pem_path, env_choice):
+    state_file = "nsu_state.json"
+    if not os.path.exists(state_file):
+        return None
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            state = json.load(f)
+            key = f"{os.path.basename(pem_path)}_{env_choice}"
+            return state.get(key)
+    except Exception as e:
+        logger.debug(f"Erro ao carregar nsu_state.json: {e}")
+        return None
+
+def save_last_nsu(pem_path, env_choice, last_nsu):
+    state_file = "nsu_state.json"
+    state = {}
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            state = {}
+    key = f"{os.path.basename(pem_path)}_{env_choice}"
+    state[key] = last_nsu
+    try:
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=4, ensure_ascii=False)
+        logger.info(f"Último NSU ({last_nsu}) salvo com sucesso em '{state_file}'.")
+    except Exception as e:
+        logger.warning(f"Não foi possível salvar o estado do NSU em '{state_file}': {e}")
+
+def check_nsu_status_for_date(session, base_url, nsu_val, start_date):
+    url = f"{base_url}/DFe/{nsu_val}"
+    for attempt in range(3):
+        try:
+            response = session.get(url, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                lote = data.get("LoteDFe")
+                if not lote:
+                    xml_content = extract_xml(data)
+                    if xml_content:
+                        lote = [{"NSU": nsu_val, "ArquivoXml": base64.b64encode(gzip.compress(xml_content.encode('utf-8'))).decode('utf-8')}]
+                
+                if not lote:
+                    return "no_data", None
+                
+                dates = []
+                max_nsu = nsu_val
+                for item in lote:
+                    nsu_item = item.get("NSU", nsu_val)
+                    max_nsu = max(max_nsu, nsu_item)
+                    xml_b64 = item.get("ArquivoXml")
+                    if xml_b64:
+                        try:
+                            conteudo_gzip = base64.b64decode(xml_b64.strip())
+                            if conteudo_gzip.startswith(b'\x1f\x8b'):
+                                xml_content = gzip.decompress(conteudo_gzip).decode('utf-8')
+                            else:
+                                xml_content = conteudo_gzip.decode('utf-8')
+                            dt = get_emission_date(xml_content)
+                            if dt:
+                                dates.append(dt)
+                        except Exception:
+                            pass
+                    else:
+                        xml_content = extract_xml(item)
+                        if xml_content:
+                            dt = get_emission_date(xml_content)
+                            if dt:
+                                dates.append(dt)
+                
+                if not dates:
+                    return "no_dates", max_nsu
+                
+                if any(d >= start_date for d in dates):
+                    return "before_or_within", max_nsu
+                else:
+                    return "after", max_nsu
+            elif response.status_code == 404:
+                return "404", None
+            elif response.status_code == 429:
+                time.sleep(10)
+            else:
+                time.sleep(2)
+        except Exception:
+            time.sleep(2)
+    return "error", None
+
+def locate_nsu_by_date(session, base_url, start_date):
+    print("\n[Busca Automática de NSU]")
+    print(f"Buscando o NSU correspondente à data inicial {start_date.strftime('%d/%m/%Y')}...")
+    
+    low = 1
+    high = 1
+    
+    print("Identificando limite superior de NSUs cadastrados...")
+    while True:
+        status, max_nsu = check_nsu_status_for_date(session, base_url, high, start_date)
+        if status == "404":
+            break
+        elif status in ["error", "no_data"]:
+            break
+        else:
+            if status == "before_or_within":
+                break
+            high = max(high * 2, (max_nsu or high) + 1)
+            print(f"  - Verificando lote em NSU {high}...")
+            
+    print(f"Faixa de busca de NSUs definida: de {low} a {high}")
+    
+    best_nsu = 1
+    print("Iniciando pesquisa binária...")
+    while low <= high:
+        mid = (low + high) // 2
+        print(f"  - Analisando NSU {mid}... ", end="", flush=True)
+        status, max_nsu = check_nsu_status_for_date(session, base_url, mid, start_date)
+        
+        if status == "before_or_within":
+            print("contém notas do período ou posteriores. Buscando mais abaixo...")
+            best_nsu = mid
+            high = mid - 1
+        elif status == "after":
+            print("apenas notas anteriores ao período. Buscando mais acima...")
+            low = mid + 1
+        elif status == "404":
+            print("fora da faixa (fim dos registros). Buscando mais abaixo...")
+            high = mid - 1
+        else:
+            print("sem dados suficientes. Buscando mais abaixo por segurança...")
+            high = mid - 1
+            
+    safety_margin = 100
+    nsu_com_seguranca = max(1, best_nsu - safety_margin)
+    print(f"\nBusca concluída!")
+    print(f"  - NSU mais próximo encontrado: {best_nsu}")
+    print(f"  - Aplicando margem de segurança de {safety_margin} NSUs para cobrir notas fora de ordem.")
+    print(f"  - NSU Inicial sugerido: {nsu_com_seguranca}")
+    return nsu_com_seguranca
+
 def main():
     print("=== free-nfse-downloader ===")
     print("Este script consome a API do Ambiente de Dados Nacional utilizando seu certificado PEM.\n")
@@ -315,10 +473,50 @@ def main():
     })
 
     # 6. Definição do NSU Inicial
-    nsu_input = input("\nNSU Inicial de busca [Padrão: 1] (número sequencial na fila de transmissão para iniciar a varredura): ").strip()
-    nsu = int(nsu_input) if nsu_input.isdigit() else 1
+    saved_nsu = load_last_nsu(pem_path, env_choice)
+    
+    print("\nDefinição do NSU Inicial de busca:")
+    options = []
+    
+    if saved_nsu is not None:
+        options.append(f"Continuar a partir do último NSU processado salvo ({saved_nsu}) [Recomendado]")
+        options.append(f"Localizar automaticamente com base na Data Inicial ({start_date.strftime('%d/%m/%Y')})")
+        options.append("Começar do início (NSU 1)")
+        options.append("Digitar um NSU manualmente")
+    else:
+        options.append(f"Localizar automaticamente com base na Data Inicial ({start_date.strftime('%d/%m/%Y')}) [Recomendado]")
+        options.append("Começar do início (NSU 1)")
+        options.append("Digitar um NSU manualmente")
+        
+    for i, opt in enumerate(options, 1):
+        print(f"  {i} - {opt}")
+        
+    choice_input = input(f"Escolha uma opção (1-{len(options)}) [Padrão: 1]: ").strip()
+    choice = int(choice_input) if choice_input.isdigit() and 1 <= int(choice_input) <= len(options) else 1
+    
+    if saved_nsu is not None:
+        if choice == 1:
+            nsu = saved_nsu
+            print(f"Utilizando NSU salvo: {nsu}")
+        elif choice == 2:
+            nsu = locate_nsu_by_date(session, base_url, start_date)
+        elif choice == 3:
+            nsu = 1
+            print("Iniciando do NSU 1.")
+        else:
+            nsu_input = input("Digite o NSU Inicial manualmente: ").strip()
+            nsu = int(nsu_input) if nsu_input.isdigit() else 1
+    else:
+        if choice == 1:
+            nsu = locate_nsu_by_date(session, base_url, start_date)
+        elif choice == 2:
+            nsu = 1
+            print("Iniciando do NSU 1.")
+        else:
+            nsu_input = input("Digite o NSU Inicial manualmente: ").strip()
+            nsu = int(nsu_input) if nsu_input.isdigit() else 1
 
-    logger.info(f"Iniciando busca no período: {start_date.strftime('%d/%m/%Y')} até {end_date.strftime('%d/%m/%Y')}")
+    logger.info(f"\nIniciando busca no período: {start_date.strftime('%d/%m/%Y')} até {end_date.strftime('%d/%m/%Y')}")
     logger.info(f"Começando do NSU {nsu}. Salvando em: '{output_dir}'")
     logger.info(f"Arquivo de log: '{log_file}'")
     logger.info("-" * 60)
@@ -390,7 +588,15 @@ def main():
                         consecutive_after_period = 0
                         logger.info(f"  [NSU {nsu_item}] Nota de {dt.strftime('%d/%m/%Y')} (DENTRO DO PERÍODO!)")
                         
-                        file_base = f"NFSe_{dt.strftime('%Y%m%d')}_nsu_{nsu_item}"
+                        nfse_num = get_nfse_number(xml_content)
+                        if nfse_num:
+                            try:
+                                formatted_num = f"{int(nfse_num):06d}"
+                            except ValueError:
+                                formatted_num = nfse_num.zfill(6)[-6:]
+                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_{formatted_num}"
+                        else:
+                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_nsu_{nsu_item}"
                         xml_file_path = os.path.join(output_dir, f"{file_base}.xml")
                         
                         with open(xml_file_path, "w", encoding="utf-8") as f:
@@ -450,8 +656,14 @@ def main():
 
     logger.info("-" * 60)
     logger.info(f"Processo finalizado. Total de notas baixadas no período: {downloaded_count}")
-    logger.info(f"Último NSU processado: {nsu - 1}")
-    logger.info("Guarde esse número para usar como 'NSU Inicial' na próxima consulta!")
+    
+    last_processed_nsu = nsu - 1
+    logger.info(f"Último NSU processado: {last_processed_nsu}")
+    
+    # Salva o último NSU no estado
+    save_last_nsu(pem_path, env_choice, last_processed_nsu)
+    
+    logger.info("Estado do NSU atualizado. Pronto para o próximo download!")
     return 0
 
 if __name__ == "__main__":
