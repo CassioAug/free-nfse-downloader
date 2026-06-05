@@ -38,8 +38,29 @@ O processo é composto por três fluxos principais:
 
 ## 📦 Instalação e Execução
 
-### Passo 1: Preparar o ambiente
-Clone ou baixe o código para sua máquina local.
+### Passo 1: Obter o código do projeto
+Você pode obter os arquivos do projeto de duas formas simples:
+
+#### Opção A: Clonando via Git (Recomendado)
+Se você já possui o **Git** instalado:
+1. Abra o seu terminal (Prompt de Comando / PowerShell no Windows, ou Terminal no macOS/Linux).
+2. Vá até a pasta onde deseja salvar o projeto (ex: `cd Documents`) e execute:
+   ```bash
+   git clone https://github.com/CassioAug/free-nfse-downloader.git
+   ```
+3. Entre na pasta criada pelo Git:
+   ```bash
+   cd free-nfse-downloader
+   ```
+
+#### Opção B: Baixando o arquivo ZIP (Para quem não usa Git)
+Se você não tem o Git ou prefere baixar manualmente:
+1. No topo desta página do repositório no GitHub, clique no botão verde **Code** e depois em **Download ZIP**.
+2. Salve o arquivo no seu computador e **extraia (descompacte)** a pasta ZIP na sua pasta de preferência (ex: Documentos ou Área de Trabalho).
+3. Abra a pasta que você acabou de extrair.
+4. Abra o terminal diretamente nesta pasta:
+   - **No Windows:** Dentro da pasta, clique no espaço em branco da barra de endereços no topo da janela (onde fica o caminho da pasta), digite `cmd` e aperte `Enter`. O Prompt de Comando abrirá diretamente na pasta certa.
+   - **No macOS / Linux:** Clique com o botão direito em um espaço vazio dentro da pasta e selecione **Abrir no Terminal** (ou "Open in Terminal").
 
 ### Passo 2: Converter o Certificado Digital
 Para rodar o conversor:
