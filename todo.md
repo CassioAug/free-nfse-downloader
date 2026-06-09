@@ -3,5 +3,5 @@
 
 ## Planejado
 [x] Salvar cache de NSU
-[  ] Separar notas serviços prestados e serviços tomados
+[x] Separar notas serviços prestados e serviços tomados
 [x] Separar notas por CNPJ (token)

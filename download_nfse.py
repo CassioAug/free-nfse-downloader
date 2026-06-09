@@ -253,6 +253,55 @@ def get_nfse_number(xml_str):
         logger.debug(f"Erro ao parsear número do XML: {e}")
     return None
 
+def get_service_type(xml_str, cnpj_label):
+    """
+    Determina se a NFS-e é um serviço prestado ou tomado, comparando
+    o CNPJ da empresa (do certificado) com o CNPJ do emitente/prestador
+    e do tomador no XML.
+    
+    Retorna 'prestado', 'tomado' ou None (indeterminado).
+    """
+    if not cnpj_label or not xml_str:
+        return None
+    
+    try:
+        root = ET.fromstring(xml_str)
+        cnpjs_emit = []   # CNPJs do prestador/emitente
+        cnpjs_toma = []   # CNPJs do tomador
+        
+        for el in root.iter():
+            tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+            
+            # Procura CNPJ dentro de tags de prestador (emit, prest)
+            if tag_local.lower() in ['emit', 'prest']:
+                for child in el.iter():
+                    child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    if child_tag.upper() == 'CNPJ' and child.text:
+                        cnpjs_emit.append(re.sub(r'\D', '', child.text))
+            
+            # Procura CNPJ dentro de tags de tomador (toma, tomador)
+            if tag_local.lower() in ['toma', 'tomador']:
+                for child in el.iter():
+                    child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    if child_tag.upper() == 'CNPJ' and child.text:
+                        cnpjs_toma.append(re.sub(r'\D', '', child.text))
+        
+        # Se o CNPJ da empresa está nos prestadores => serviço prestado
+        if cnpj_label in cnpjs_emit:
+            return 'prestado'
+        
+        # Se o CNPJ da empresa está nos tomadores => serviço tomado
+        if cnpj_label in cnpjs_toma:
+            return 'tomado'
+        
+        # Se nenhum dos casos, registra aviso
+        logger.warning(f"Não foi possível classificar serviço (emit={cnpjs_emit}, toma={cnpjs_toma})")
+        return None
+        
+    except Exception as e:
+        logger.debug(f"Erro ao classificar tipo de serviço: {e}")
+        return None
+
 def extract_cnpj_from_subject(subject_str):
     """
     Extrai o CNPJ (14 dígitos) do campo Subject de um certificado digital.
@@ -892,6 +941,23 @@ def main():
                         consecutive_after_period = 0
                         logger.info(f"  [NSU {nsu_item}] Nota de {dt.strftime('%d/%m/%Y')} (DENTRO DO PERÍODO!)")
                         
+                        # Classifica o tipo de serviço (prestado ou tomado)
+                        tipo_servico = get_service_type(xml_content, cnpj_label)
+                        if tipo_servico == 'prestado':
+                            tipo_subdir = "prestados"
+                        elif tipo_servico == 'tomado':
+                            tipo_subdir = "tomados"
+                        else:
+                            tipo_subdir = None
+                        
+                        if tipo_subdir:
+                            tipo_dir = os.path.join(output_dir, tipo_subdir)
+                            os.makedirs(tipo_dir, exist_ok=True)
+                            logger.info(f"    -> Serviço {tipo_servico}")
+                        else:
+                            tipo_dir = output_dir
+                            logger.info(f"    -> Tipo de serviço indeterminado, salvando na raiz")
+                        
                         nfse_num = get_nfse_number(xml_content)
                         if nfse_num:
                             try:
@@ -901,13 +967,13 @@ def main():
                             file_base = f"NFSe_{dt.strftime('%Y%m%d')}_{formatted_num}"
                         else:
                             file_base = f"NFSe_{dt.strftime('%Y%m%d')}_nsu_{nsu_item}"
-                        xml_file_path = os.path.join(output_dir, f"{file_base}.xml")
+                        xml_file_path = os.path.join(tipo_dir, f"{file_base}.xml")
                         
                         with open(xml_file_path, "w", encoding="utf-8") as f:
                             f.write(xml_content)
                             
                         if HAS_DANFSE_LIB:
-                            pdf_file_path = os.path.join(output_dir, f"{file_base}.pdf")
+                            pdf_file_path = os.path.join(tipo_dir, f"{file_base}.pdf")
                             try:
                                 danfse = CustomDanfse(xml=xml_content)
                                 danfse.output(pdf_file_path)
