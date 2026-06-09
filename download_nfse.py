@@ -406,62 +406,91 @@ def main():
     a3_thumbprint = None
     a3_cert_info = None
 
-    # --- Certificado: sempre PEM de ./certificados/ ---
-    cert_type = "PEM"
-    pem_dir = "./certificados"
+    # --- Certificado: PEM ou A3 ---
+    print("Tipo de certificado:")
+    print("  1 - Arquivo PEM (./certificados/)")
+    if HAS_CERT_HANDLER:
+        print("  2 - Token A3 (USB)")
+    opcao_cert = input("Opção [Padrão: 1]: ").strip() or "1"
 
-    if not os.path.isdir(pem_dir):
-        print(f"Erro: Diretório '{pem_dir}' não encontrado.")
-        return 1
-
-    arquivos = [f for f in os.listdir(pem_dir) if f.lower().endswith('.pem')]
-    if not arquivos:
-        print(f"Erro: Nenhum arquivo .pem encontrado em '{pem_dir}'.")
-        return 1
-    elif len(arquivos) == 1:
-        pem_path = os.path.join(pem_dir, arquivos[0])
-        print(f"Certificado: {arquivos[0]}")
-    else:
-        print(f"\nCertificados encontrados em {pem_dir}/:")
-        for idx, arq in enumerate(arquivos, 1):
-            print(f"  {idx} - {arq}")
-        try:
-            opcao = input(f"Selecione (1-{len(arquivos)}): ").strip()
-            if not opcao.isdigit() or not (1 <= int(opcao) <= len(arquivos)):
-                print("Opção inválida.")
-                return 1
-            pem_path = os.path.join(pem_dir, arquivos[int(opcao) - 1])
-        except (KeyboardInterrupt, SystemExit):
-            print("\nOperação cancelada.")
+    if HAS_CERT_HANDLER and opcao_cert == "2":
+        cert_type = "A3"
+        print("\n[Modo: Token A3 - Windows Certificate Store]")
+        token_certs = cert_handler.list_token_certs()
+        if not token_certs:
+            print("Erro: Nenhum certificado de token (A3) encontrado.")
             return 1
 
-    print(f"\n[Modo: PEM] {pem_path}")
-    cnpj = extract_cnpj_from_pem(pem_path)
+        print(f"\nEncontrado(s) {len(token_certs)} certificado(s):\n")
+        for idx, cert in enumerate(token_certs, 1):
+            print(f"  {idx} - {cert.get('subject', 'Desconhecido')}  (válido até {cert.get('notafter', 'N/A')})")
 
-    state_key = os.path.basename(pem_path)
+        if len(token_certs) == 1:
+            selected_index = 0
+        else:
+            try:
+                s = input(f"Selecione (1-{len(token_certs)}): ").strip()
+                if not s.isdigit() or not (1 <= int(s) <= len(token_certs)):
+                    print("Opção inválida.")
+                    return 1
+                selected_index = int(s) - 1
+            except (KeyboardInterrupt, SystemExit):
+                print("\nOperação cancelada.")
+                return 1
 
-    # CNPJ da empresa
+        a3_cert_info = token_certs[selected_index]
+        a3_thumbprint = a3_cert_info.get('thumbprint')
+        if not a3_thumbprint:
+            print("Erro: Certificado sem thumbprint.")
+            return 1
+        cnpj = extract_cnpj_from_subject(a3_cert_info.get('subject', ''))
+        state_key = f"A3_{a3_thumbprint}"
+    else:
+        cert_type = "PEM"
+        pem_dir = "./certificados"
+        if not os.path.isdir(pem_dir):
+            print(f"Erro: Diretório '{pem_dir}' não encontrado.")
+            return 1
+
+        arquivos = [f for f in os.listdir(pem_dir) if f.lower().endswith('.pem')]
+        if not arquivos:
+            print(f"Erro: Nenhum .pem em '{pem_dir}'.")
+            return 1
+        elif len(arquivos) == 1:
+            pem_path = os.path.join(pem_dir, arquivos[0])
+            print(f"Certificado: {arquivos[0]}")
+        else:
+            print(f"\nCertificados em {pem_dir}/:")
+            for idx, arq in enumerate(arquivos, 1):
+                print(f"  {idx} - {arq}")
+            try:
+                s = input(f"Selecione (1-{len(arquivos)}): ").strip()
+                if not s.isdigit() or not (1 <= int(s) <= len(arquivos)):
+                    print("Opção inválida.")
+                    return 1
+                pem_path = os.path.join(pem_dir, arquivos[int(s) - 1])
+            except (KeyboardInterrupt, SystemExit):
+                print("\nOperação cancelada.")
+                return 1
+
+        cnpj = extract_cnpj_from_pem(pem_path)
+        state_key = os.path.basename(pem_path)
+
+    # CNPJ
     cnpj_label = None
     if cnpj:
         cnpj_label = re.sub(r'\D', '', cnpj)
         print(f"CNPJ: {cnpj_label}")
     else:
-        print("\nAviso: Não foi possível extrair o CNPJ do certificado.")
-        resp = input("Deseja digitar o CNPJ manualmente? (s/N): ").strip().lower()
-        if resp == 's':
-            cnpj_manual = input("CNPJ (14 dígitos): ").strip()
-            cnpj_manual = re.sub(r'\D', '', cnpj_manual)
-            if len(cnpj_manual) == 14:
-                cnpj_label = cnpj_manual
-            else:
-                print("CNPJ inválido.")
-        else:
-            print("Notas salvas na raiz da pasta de saída.")
+        print("\nAviso: Não foi possível extrair o CNPJ.")
+        if input("Digitar manualmente? (s/N): ").strip().lower() == 's':
+            m = re.sub(r'\D', '', input("CNPJ (14 dígitos): ").strip())
+            if len(m) == 14:
+                cnpj_label = m
 
     # Ambiente: sempre produção
     env_choice = "1"
     base_url = API_URLS["1"]
-    print(f"Ambiente: Produção ({base_url})")
 
     # 3. Período das Notas
     print("\nInforme o período desejado (Formato: DD/MM/YYYY):")
@@ -482,13 +511,10 @@ def main():
         return 1
 
     # 4. Diretório de Saída
-    output_dir = input("\nPasta para salvar as notas [Padrão: ./notas_fiscais]: ").strip().strip("'\"") or "./notas_fiscais"
-    
-    # Cria subpasta com CNPJ se disponível
+    output_dir = "./notas_fiscais"
     if cnpj_label:
         output_dir = os.path.join(output_dir, cnpj_label)
-        print(f"As notas serão salvas em: '{output_dir}'")
-    
+    print(f"\nDiretório de saída: {output_dir}")
     os.makedirs(output_dir, exist_ok=True)
     
     # --- Configuração do Logger ---
