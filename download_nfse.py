@@ -607,14 +607,138 @@ def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
             time.sleep(2)
     return "error", None
 
+def _get_nsu_date(download_func, base_url, nsu_val):
+    """
+    Consulta um NSU e retorna a data de emissão mais antiga encontrada.
+    Retorna (date, max_nsu) se houver documentos, ou (None, nsu_val) se não.
+    """
+    url = f"{base_url}/DFe/{nsu_val}"
+    for attempt in range(3):
+        try:
+            time.sleep(0.3)
+            status_code, response_text, error_msg = download_func(url)
+            if status_code == 200:
+                try:
+                    data = json.loads(response_text)
+                except json.JSONDecodeError:
+                    return None, nsu_val
+
+                lote = data.get("LoteDFe")
+                if not lote:
+                    xml_content = extract_xml(data)
+                    if xml_content:
+                        lote = [{"NSU": nsu_val, "ArquivoXml": base64.b64encode(gzip.compress(xml_content.encode('utf-8'))).decode('utf-8')}]
+
+                if not lote:
+                    return None, nsu_val
+
+                dates = []
+                max_nsu = nsu_val
+                for item in lote:
+                    nsu_item = item.get("NSU", nsu_val)
+                    max_nsu = max(max_nsu, nsu_item)
+                    xml_b64 = item.get("ArquivoXml")
+                    if xml_b64:
+                        try:
+                            conteudo_gzip = base64.b64decode(xml_b64.strip())
+                            if conteudo_gzip.startswith(b'\x1f\x8b'):
+                                xml_content = gzip.decompress(conteudo_gzip).decode('utf-8')
+                            else:
+                                xml_content = conteudo_gzip.decode('utf-8')
+                            dt = get_emission_date(xml_content)
+                            if dt:
+                                dates.append(dt)
+                        except Exception:
+                            pass
+                    else:
+                        xml_content = extract_xml(item)
+                        if xml_content:
+                            dt = get_emission_date(xml_content)
+                            if dt:
+                                dates.append(dt)
+
+                if not dates:
+                    return None, max_nsu
+
+                return min(dates), max_nsu
+
+            elif status_code == 404:
+                return None, None
+            elif status_code == 429:
+                sleep_time = 10 * (2 ** attempt)
+                logger.warning(f"Limite de requisições (429). Aguardando {sleep_time}s (tentativa {attempt+1}/3)...")
+                time.sleep(sleep_time)
+            else:
+                time.sleep(2)
+        except Exception:
+            time.sleep(2)
+    return None, nsu_val
+
+
+def _extend_nsu_index(download_func, base_url, cnpj_label, env_choice):
+    """
+    Varre NSUs em intervalos exponenciais crescentes (1, 100, 300, 700, ...)
+    até encontrar 3 NSUs consecutivos sem dados. Atualiza o índice
+    NSU→data para cada NSU que encontrar dados.
+
+    Retorna o índice completo atualizado.
+    """
+    index = load_nsu_index(cnpj_label, env_choice)
+    indexed_nsus = sorted(int(k) for k in index.keys())
+    last_indexed = indexed_nsus[-1] if indexed_nsus else 0
+
+    print(f"\n[Índice] Varrendo NSUs para ampliar índice ({len(indexed_nsus)} entradas existentes)...")
+
+    # Determina ponto de partida e passo inicial
+    if last_indexed == 0:
+        nsu = 1
+        step = 99
+    else:
+        nsu = last_indexed
+        # Calcula o próximo passo baseado nos últimos 2 NSUs indexados
+        if len(indexed_nsus) >= 2:
+            step = indexed_nsus[-1] - indexed_nsus[-2]
+        else:
+            step = max(99, last_indexed // 2)
+        # Avança para o próximo NSU após o último indexado
+        step *= 2
+        nsu += step
+
+    empty_count = 0
+    novas = 0
+
+    while empty_count < 3:
+        data_encontrada, max_nsu = _get_nsu_date(download_func, base_url, nsu)
+
+        if data_encontrada:
+            save_nsu_index_entry(cnpj_label, env_choice, nsu, data_encontrada)
+            novas += 1
+            empty_count = 0
+            # Se o lote retornou NSUs além do consultado, usa como referência
+            if max_nsu and max_nsu > nsu:
+                nsu = max_nsu
+            print(f"  NSU {nsu}: {data_encontrada.strftime('%d/%m/%Y')} ✓")
+        else:
+            empty_count += 1
+            print(f"  NSU {nsu}: sem dados ({empty_count}/3)")
+
+        # Próximo NSU: passo exponencial
+        step = min(step * 2, 100000)
+        nsu += step
+
+    print(f"  Índice atualizado: {novas} novas entradas, {empty_count} vazios consecutivos")
+    return load_nsu_index(cnpj_label, env_choice)
+
+
 def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env_choice=None):
     """
-    Localiza o NSU correspondente à data inicial.
-    
-    Estratégia em 3 níveis, do mais rápido ao mais lento:
-    1. Cache exato (data → NSU) → 0 requisições
-    2. Índice de NSUs (a cada 100) → busca binária em ~7 requisições
-    3. Galloping partir do NSU 1 → ~log(N) requisições (apenas se não há índice)
+    Localiza o NSU correspondente à data inicial usando apenas o índice.
+
+    1. Se existe cache exato (data→NSU) → 0 requisições
+    2. Se existe índice NSU→data com cobertura → busca binária entre as entradas
+    3. Se não → estende o índice com varredura exponencial, depois busca binária
+
+    O índice é sempre salvo e reutilizado em execuções futuras.
     """
     print(f"\n[Busca] Localizando NSU para {start_date.strftime('%d/%m/%Y')}...")
 
@@ -625,15 +749,22 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
             print(f"  Cache exato: NSU {cached_nsu}")
             return cached_nsu
 
-    # --- Nível 2: Índice de NSUs (a cada 100) ---
-    idx_low = 1
+    # --- Nível 2: Usa o índice ---
     if cnpj_label and env_choice:
         idx_low, idx_high = find_nsu_range_by_date(cnpj_label, env_choice, start_date)
+
+        # Se o índice não cobre a data, estende primeiro
+        if idx_high is None:
+            print(f"  Índice não cobre {start_date.strftime('%d/%m/%Y')}. Estendendo...")
+            index = _extend_nsu_index(download_func, base_url, cnpj_label, env_choice)
+            idx_low, idx_high = find_nsu_range_by_date(cnpj_label, env_choice, start_date)
+
         if idx_high is not None:
-            print(f"  Índice: NSU {idx_low} a {idx_high} (diferença ≤ {NSU_INDEX_STEP})")
+            print(f"  Índice: NSU {idx_low} a {idx_high}")
             low, high = idx_low, idx_high
             best_nsu = low
             nsu_encontrado = False
+
             while low <= high:
                 mid = (low + high) // 2
                 status, _ = check_nsu_status_for_date(download_func, base_url, mid, start_date)
@@ -645,71 +776,18 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
                     low = mid + 1
                 else:
                     high = mid - 1
+
             safety = 30
             nsu_final = max(1, best_nsu - safety)
             print(f"  NSU exato: {best_nsu} → inicial: {nsu_final}")
             if nsu_encontrado:
                 save_nsu_location_cache(cnpj_label, env_choice, start_date, best_nsu)
             return nsu_final
-        elif idx_low > 1:
-            print(f"  Índice: último NSU indexado {idx_low} (anterior à data alvo)")
 
-    # --- Nível 3: Galloping (sem índice ou data além do índice) ---
-    low = idx_low if cnpj_label and env_choice and idx_low > 1 else 1
-    if cnpj_label and env_choice:
-        cached_nsu, _ = load_nsu_location_cache(cnpj_label, env_choice, start_date)
-        if cached_nsu and not idx_low > 1:
-            low = max(1, cached_nsu - 200)
-            print(f"  Cache aprox: NSU {cached_nsu} - 200")
-        elif low == 1:
-            print("  Sem índice. Busca exponencial a partir do NSU 1.")
-        else:
-            print(f"  Último NSU indexado: {low}")
-
-    nsu = low
-    step = 1
-    found_upper = False
-
-    while not found_upper:
-        status, max_nsu = check_nsu_status_for_date(download_func, base_url, nsu, start_date)
-        if status == "before_or_within":
-            found_upper = True
-        elif status in ("after", "no_data", "no_dates"):
-            low = nsu
-            step = min(step * 2, 5000)
-            nsu += step
-            print(f"  → NSU {nsu} (passo {step})")
-        elif status == "404":
-            nsu = max(low, nsu - 1)
-            found_upper = True
-        else:
-            nsu = max(low, nsu - 1)
-            found_upper = True
-
-    high = nsu
-    best_nsu = low
-    nsu_encontrado = False
-
-    while low <= high:
-        mid = (low + high) // 2
-        status, _ = check_nsu_status_for_date(download_func, base_url, mid, start_date)
-        if status == "before_or_within":
-            best_nsu = mid
-            nsu_encontrado = True
-            high = mid - 1
-        elif status == "after":
-            low = mid + 1
-        else:
-            high = mid - 1
-
-    safety = 50 if cnpj_label else 100
-    nsu_final = max(1, best_nsu - safety)
-    print(f"  NSU exato: {best_nsu} → inicial: {nsu_final}")
-
-    if cnpj_label and env_choice and nsu_encontrado:
-        save_nsu_location_cache(cnpj_label, env_choice, start_date, best_nsu)
-
-    return nsu_final
+    # Fallback (improvável): sem CNPJ ou sem índice
+    print("  Sem índice. Iniciando varredura do NSU 1...")
+    _extend_nsu_index(download_func, base_url, cnpj_label, env_choice)
+    return locate_nsu_by_date(download_func, base_url, start_date, cnpj_label, env_choice)
 
 def main():
     print("=== free-nfse-downloader ===")
@@ -912,49 +990,9 @@ def main():
             else:
                 return 0, None, data
 
-    # 6. Definição do NSU Inicial
-    saved_nsu = load_last_nsu(state_key, env_choice)
-    
-    print("\nDefinição do NSU Inicial de busca:")
-    options = []
-    
-    if saved_nsu is not None:
-        options.append(f"Continuar a partir do último NSU processado salvo ({saved_nsu}) [Recomendado]")
-        options.append(f"Localizar automaticamente com base na Data Inicial ({start_date.strftime('%d/%m/%Y')})")
-        options.append("Começar do início (NSU 1)")
-        options.append("Digitar um NSU manualmente")
-    else:
-        options.append(f"Localizar automaticamente com base na Data Inicial ({start_date.strftime('%d/%m/%Y')}) [Recomendado]")
-        options.append("Começar do início (NSU 1)")
-        options.append("Digitar um NSU manualmente")
-        
-    for i, opt in enumerate(options, 1):
-        print(f"  {i} - {opt}")
-        
-    choice_input = input(f"Escolha uma opção (1-{len(options)}) [Padrão: 1]: ").strip()
-    choice = int(choice_input) if choice_input.isdigit() and 1 <= int(choice_input) <= len(options) else 1
-    
-    if saved_nsu is not None:
-        if choice == 1:
-            nsu = saved_nsu
-            print(f"Utilizando NSU salvo: {nsu}")
-        elif choice == 2:
-            nsu = locate_nsu_by_date(do_download, base_url, start_date, cnpj_label, env_choice)
-        elif choice == 3:
-            nsu = 1
-            print("Iniciando do NSU 1.")
-        else:
-            nsu_input = input("Digite o NSU Inicial manualmente: ").strip()
-            nsu = int(nsu_input) if nsu_input.isdigit() else 1
-    else:
-        if choice == 1:
-            nsu = locate_nsu_by_date(do_download, base_url, start_date, cnpj_label, env_choice)
-        elif choice == 2:
-            nsu = 1
-            print("Iniciando do NSU 1.")
-        else:
-            nsu_input = input("Digite o NSU Inicial manualmente: ").strip()
-            nsu = int(nsu_input) if nsu_input.isdigit() else 1
+    # 6. Localização automática do NSU (baseada no índice)
+    print("\n[Busca] Localizando NSU inicial para o período...")
+    nsu = locate_nsu_by_date(do_download, base_url, start_date, cnpj_label, env_choice)
 
     cert_label = pem_path if cert_type == "PEM" else a3_cert_info.get('subject', 'A3 Token')
     if cnpj_label:
