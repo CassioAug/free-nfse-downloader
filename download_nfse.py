@@ -470,6 +470,78 @@ def save_nsu_location_cache(cnpj, env_choice, start_date, nsu_encontrado):
     except Exception as e:
         logger.warning(f"Não foi possível salvar cache de localização: {e}")
 
+# --- Índice de NSUs (NSU → data, a cada 100 NSUs) ---
+NSU_INDEX_STEP = 100
+
+def _nsu_index_path(cnpj, env_choice):
+    return os.path.join(NSU_CACHE_DIR, f"{cnpj}_{env_choice}_index.json")
+
+def load_nsu_index(cnpj, env_choice):
+    if not cnpj:
+        return {}
+    path = _nsu_index_path(cnpj, env_choice)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        index = {}
+        for nsu_str, date_str in data.items():
+            index[int(nsu_str)] = date.fromisoformat(date_str)
+        return index
+    except Exception:
+        return {}
+
+def save_nsu_index_entry(cnpj, env_choice, nsu_val, emission_date):
+    if not cnpj or not nsu_val or not emission_date:
+        return
+    os.makedirs(NSU_CACHE_DIR, exist_ok=True)
+    path = _nsu_index_path(cnpj, env_choice)
+    index = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                index = json.load(f)
+        except Exception:
+            index = {}
+    nsu_key = str(nsu_val)
+    date_str = emission_date.isoformat()
+    if index.get(nsu_key) != date_str:
+        index[nsu_key] = date_str
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(index, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+def find_nsu_range_by_date(cnpj, env_choice, target_date):
+    """
+    Usa o índice de NSUs para encontrar o range [low, high] que contém
+    a data alvo. Retorna (low_nsu, high_nsu) ou (1, None) se não houver
+    índice suficiente.
+    """
+    index = load_nsu_index(cnpj, env_choice)
+    if not index:
+        return 1, None
+
+    nsus = sorted(index.keys())
+    low_nsu = 1
+    high_nsu = None
+
+    for nsu in nsus:
+        nsu_date = index[nsu]
+        if nsu_date < target_date:
+            low_nsu = nsu
+        elif nsu_date >= target_date:
+            high_nsu = nsu
+            break
+
+    if high_nsu is None:
+        return low_nsu, None
+
+    return low_nsu, high_nsu
+
+
 def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
     url = f"{base_url}/DFe/{nsu_val}"
     for attempt in range(3):
@@ -537,94 +609,107 @@ def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
 
 def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env_choice=None):
     """
-    Localiza automaticamente o NSU correspondente à data inicial.
+    Localiza o NSU correspondente à data inicial.
     
-    Se cnpj_label e env_choice forem fornecidos, utiliza cache de localização
-    para evitar requisições desnecessárias.
+    Estratégia em 3 níveis, do mais rápido ao mais lento:
+    1. Cache exato (data → NSU) → 0 requisições
+    2. Índice de NSUs (a cada 100) → busca binária em ~7 requisições
+    3. Galloping partir do NSU 1 → ~log(N) requisições (apenas se não há índice)
     """
-    low = 1
-    
-    # Tenta carregar do cache
+    print(f"\n[Busca] Localizando NSU para {start_date.strftime('%d/%m/%Y')}...")
+
+    # --- Nível 1: Cache exato ---
     if cnpj_label and env_choice:
         cached_nsu, origem = load_nsu_location_cache(cnpj_label, env_choice, start_date)
-        if cached_nsu:
-            if origem == "exato":
-                print(f"\n[Cache] Localização já disponível para {start_date.strftime('%d/%m/%Y')}: NSU {cached_nsu}")
-                print(f"  (pule a busca e use a opção 'Continuar do último NSU' ou inicie manualmente)")
-                return cached_nsu
-            else:
-                print(f"\n[Cache] Usando referência de cache {origem}: NSU {cached_nsu}")
-                low = max(1, cached_nsu - 500)
-                print(f"  Iniciando busca a partir do NSU {low} (margem de segurança de 500 NSUs)")
-    
-    print("\n[Busca Automática de NSU]")
-    print(f"Buscando o NSU correspondente à data inicial {start_date.strftime('%d/%m/%Y')}...")
+        if cached_nsu and origem == "exato":
+            print(f"  Cache exato: NSU {cached_nsu}")
+            return cached_nsu
 
-    high = 1
+    # --- Nível 2: Índice de NSUs (a cada 100) ---
+    idx_low = 1
+    if cnpj_label and env_choice:
+        idx_low, idx_high = find_nsu_range_by_date(cnpj_label, env_choice, start_date)
+        if idx_high is not None:
+            print(f"  Índice: NSU {idx_low} a {idx_high} (diferença ≤ {NSU_INDEX_STEP})")
+            low, high = idx_low, idx_high
+            best_nsu = low
+            nsu_encontrado = False
+            while low <= high:
+                mid = (low + high) // 2
+                status, _ = check_nsu_status_for_date(download_func, base_url, mid, start_date)
+                if status == "before_or_within":
+                    best_nsu = mid
+                    nsu_encontrado = True
+                    high = mid - 1
+                elif status == "after":
+                    low = mid + 1
+                else:
+                    high = mid - 1
+            safety = 30
+            nsu_final = max(1, best_nsu - safety)
+            print(f"  NSU exato: {best_nsu} → inicial: {nsu_final}")
+            if nsu_encontrado:
+                save_nsu_location_cache(cnpj_label, env_choice, start_date, best_nsu)
+            return nsu_final
+        elif idx_low > 1:
+            print(f"  Índice: último NSU indexado {idx_low} (anterior à data alvo)")
 
-    print("Identificando limite superior de NSUs cadastrados...")
-    while True:
-        status, max_nsu = check_nsu_status_for_date(download_func, base_url, high, start_date)
-        if status == "before_or_within":
-            print(f"  - Limite identificado: NSU {high}")
-            break
-        elif status == "after":
-            high = max(high * 2, (max_nsu or high) + 1)
-            print(f"  - Verificando lote em NSU {high}...")
-        elif status == "404":
-            print(f"  - Fim dos registros em NSU {high}")
-            break
-        elif status in ("no_data", "no_dates"):
-            high = max(high * 2, (max_nsu or high) + 1)
-            print(f"  - NSU {high} (sem dados, avançando)...")
+    # --- Nível 3: Galloping (sem índice ou data além do índice) ---
+    low = idx_low if cnpj_label and env_choice and idx_low > 1 else 1
+    if cnpj_label and env_choice:
+        cached_nsu, _ = load_nsu_location_cache(cnpj_label, env_choice, start_date)
+        if cached_nsu and not idx_low > 1:
+            low = max(1, cached_nsu - 200)
+            print(f"  Cache aprox: NSU {cached_nsu} - 200")
+        elif low == 1:
+            print("  Sem índice. Busca exponencial a partir do NSU 1.")
         else:
-            print(f"  - Erro ao verificar NSU {high}, interrompendo busca de limite.")
-            break
+            print(f"  Último NSU indexado: {low}")
 
-    # Se low foi definido pelo cache, ajusta high para no mínimo low
-    if low > 1:
-        high = max(high, low + 1)
-    
-    print(f"Faixa de busca de NSUs definida: de {low} a {high}")
+    nsu = low
+    step = 1
+    found_upper = False
 
-    best_nsu = None
+    while not found_upper:
+        status, max_nsu = check_nsu_status_for_date(download_func, base_url, nsu, start_date)
+        if status == "before_or_within":
+            found_upper = True
+        elif status in ("after", "no_data", "no_dates"):
+            low = nsu
+            step = min(step * 2, 5000)
+            nsu += step
+            print(f"  → NSU {nsu} (passo {step})")
+        elif status == "404":
+            nsu = max(low, nsu - 1)
+            found_upper = True
+        else:
+            nsu = max(low, nsu - 1)
+            found_upper = True
+
+    high = nsu
+    best_nsu = low
     nsu_encontrado = False
-    print("Iniciando pesquisa binária...")
+
     while low <= high:
         mid = (low + high) // 2
-        print(f"  - Analisando NSU {mid}... ", end="", flush=True)
-        status, max_nsu = check_nsu_status_for_date(download_func, base_url, mid, start_date)
-
+        status, _ = check_nsu_status_for_date(download_func, base_url, mid, start_date)
         if status == "before_or_within":
-            print("contém notas do período ou posteriores. Buscando mais abaixo...")
             best_nsu = mid
             nsu_encontrado = True
             high = mid - 1
         elif status == "after":
-            print("apenas notas anteriores ao período. Buscando mais acima...")
             low = mid + 1
-        elif status == "404":
-            print("fora da faixa (fim dos registros). Buscando mais abaixo...")
-            high = mid - 1
         else:
-            print("sem dados suficientes. Buscando mais abaixo por segurança...")
             high = mid - 1
 
-    safety_margin = 100
-    if best_nsu is None:
-        best_nsu = low
-        print(f"\nBusca inconclusiva. Usando NSU {low} como referência.")
-    nsu_com_seguranca = max(1, best_nsu - safety_margin)
-    print(f"\nBusca concluída!")
-    print(f"  - NSU mais próximo encontrado: {best_nsu}")
-    print(f"  - Aplicando margem de segurança de {safety_margin} NSUs para cobrir notas fora de ordem.")
-    print(f"  - NSU Inicial sugerido: {nsu_com_seguranca}")
+    safety = 50 if cnpj_label else 100
+    nsu_final = max(1, best_nsu - safety)
+    print(f"  NSU exato: {best_nsu} → inicial: {nsu_final}")
 
-    # Salva no cache para uso futuro (apenas se encontrou dados reais)
     if cnpj_label and env_choice and nsu_encontrado:
         save_nsu_location_cache(cnpj_label, env_choice, start_date, best_nsu)
 
-    return nsu_com_seguranca
+    return nsu_final
 
 def main():
     print("=== free-nfse-downloader ===")
@@ -882,6 +967,7 @@ def main():
 
     consecutive_after_period = 0
     downloaded_count = 0
+    first_nsu_in_period = None
     request_delay = 1.0
 
     while True:
@@ -945,6 +1031,10 @@ def main():
                             f.write(xml_content)
                         continue
                         
+                    # Alimenta o índice NSU (a cada 100)
+                    if cnpj_label and env_choice and nsu_item % NSU_INDEX_STEP < 3:
+                        save_nsu_index_entry(cnpj_label, env_choice, nsu_item, dt)
+
                     # Regras de Filtro por Data
                     if dt < start_date:
                         consecutive_after_period = 0
@@ -952,6 +1042,8 @@ def main():
                         
                     elif start_date <= dt <= end_date:
                         consecutive_after_period = 0
+                        if first_nsu_in_period is None or nsu_item < first_nsu_in_period:
+                            first_nsu_in_period = nsu_item
                         logger.info(f"  [NSU {nsu_item}] Nota de {dt.strftime('%d/%m/%Y')} (DENTRO DO PERÍODO!)")
                         
                         # Classifica o tipo de serviço (prestado ou tomado)
@@ -1047,7 +1139,12 @@ def main():
     logger.info(f"Último NSU processado: {last_processed_nsu}")
 
     save_last_nsu(state_key, env_choice, last_processed_nsu)
-    
+
+    # Salva cache NSU->data para localização futura sem busca
+    if first_nsu_in_period and cnpj_label and env_choice:
+        save_nsu_location_cache(cnpj_label, env_choice, start_date, first_nsu_in_period)
+        logger.info(f"Cache de data salvo: {start_date.strftime('%d/%m/%Y')} → NSU {first_nsu_in_period}")
+
     logger.info("Estado do NSU atualizado. Pronto para o próximo download!")
     return 0
 
