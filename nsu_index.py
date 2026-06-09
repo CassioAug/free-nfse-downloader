@@ -373,6 +373,12 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
             _extend_nsu_index(download_func, base_url, cnpj_label, env_choice)
             idx_low, idx_high = find_nsu_range_by_date(cnpj_label, env_choice, start_date)
 
+            if idx_high is None:
+                print(f"  Índice não cobre a data alvo após extensão. Retornando NSU {idx_low} como aproximação.")
+                safety = 30
+                nsu_final = max(1, idx_low - safety)
+                return nsu_final
+
         if idx_high is not None:
             print(f"  Índice: NSU {idx_low} a {idx_high}")
             low, high = idx_low, idx_high
@@ -400,5 +406,4 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
 
     # Fallback: sem CNPJ ou sem índice
     print("  Sem índice. Iniciando varredura do NSU 1...")
-    _extend_nsu_index(download_func, base_url, cnpj_label, env_choice)
-    return locate_nsu_by_date(download_func, base_url, start_date, cnpj_label, env_choice)
+    return 1

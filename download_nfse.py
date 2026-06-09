@@ -5,6 +5,7 @@ import subprocess
 import re
 import logging
 import time
+import atexit
 from datetime import datetime, date, timedelta
 from organize_nfse import get_service_type
 from nsu_index import locate_nsu_by_date, save_nsu_index_entry, save_nsu_location_cache
@@ -542,8 +543,11 @@ def main():
             "Accept": "application/json",
             "Content-Type": "application/json"
         })
+        playwright_client = None
     else:
         session = None
+        playwright_client = cert_handler.PlaywrightA3Client()
+        playwright_client.initialize(f"{base_url}/DFe/1")
 
     def do_download(url):
         """Executa o download usando o método apropriado (PEM ou A3)"""
@@ -551,11 +555,16 @@ def main():
             response = session.get(url, timeout=30)
             return response.status_code, response.text, None
         else:
-            success, data = cert_handler.download_json_with_curl(url, a3_thumbprint)
-            if success:
-                return 200, data, None
+            status_code, text, error = playwright_client.download_url(url)
+            if status_code == 200:
+                return 200, text, None
+            elif status_code > 0:
+                return status_code, text, None
             else:
-                return 0, None, data
+                return 0, None, error or "Erro de rede no Chrome"
+
+    if cert_type != "PEM" and playwright_client:
+        atexit.register(playwright_client.close)
 
     # 6. Localização automática do NSU (baseada no índice)
     print("\n[Busca] Localizando NSU inicial para o período...")

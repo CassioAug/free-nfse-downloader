@@ -3,7 +3,7 @@
 cert_handler.py - Módulo de handling de certificados digitais
 Suporta:
   - Certificados em arquivo PEM/PFX (fluxo original)
-  - Certificados A3 via Windows Certificate Store (curl + Schannel)
+  - Certificados A3 via Windows Certificate Store (PowerShell + .NET/Schannel)
 """
 import subprocess
 import os
@@ -159,16 +159,28 @@ def list_token_certs():
     token_certs = [c for c in all_certs if is_token_certificate(c)]
     return token_certs
 
+def safe_print(text):
+    """Imprime texto de forma segura no console Windows, tratando erros de encoding"""
+    import sys
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = sys.stdout.encoding or 'utf-8'
+        try:
+            print(text.encode(encoding, errors='replace').decode(encoding))
+        except Exception:
+            print(text.encode('ascii', errors='replace').decode('ascii'))
+
 def list_a3_certs_pretty():
     """Lista certificados A3 de forma formatada para seleção"""
     token_certs = list_token_certs()
 
     if not token_certs:
-        print("Nenhum certificado de token (A3) encontrado no Windows Certificate Store.")
-        print("Verifique se o token está conectado e se o driver SafeSign está instalado.")
+        safe_print("Nenhum certificado de token (A3) encontrado no Windows Certificate Store.")
+        safe_print("Verifique se o token está conectado e se o driver SafeSign está instalado.")
         return []
 
-    print(f"\nEncontrados {len(token_certs)} certificado(s) de token (A3):\n")
+    safe_print(f"\nEncontrados {len(token_certs)} certificado(s) de token (A3):\n")
 
     for idx, cert in enumerate(token_certs, 1):
         subject = cert.get('subject', 'Desconhecido')
@@ -177,12 +189,12 @@ def list_a3_certs_pretty():
         notafter = cert.get('notafter', 'N/A')
         key_export = cert.get('key_exportable', 'N/A')
 
-        print(f"  {idx} - {subject}")
-        print(f"      Thumbprint: {thumbprint}")
-        print(f"      Provider: {provider}")
-        print(f"      Validade: {notafter}")
-        print(f"      Chave Privada: {key_export}")
-        print()
+        safe_print(f"  {idx} - {subject}")
+        safe_print(f"      Thumbprint: {thumbprint}")
+        safe_print(f"      Provider: {provider}")
+        safe_print(f"      Validade: {notafter}")
+        safe_print(f"      Chave Privada: {key_export}")
+        safe_print("")
 
     return token_certs
 
@@ -198,7 +210,7 @@ def download_with_curl(url, thumbprint, output_path, extra_args=None):
 
     Args:
         url: URL para download
-        thumbprint: Thumbprint SHA1 do certificado (ignorado, usa auto-client-cert)
+        thumbprint: Thumbprint SHA1 do certificado (usado com store: prefix)
         output_path: Arquivo de saída
         extra_args: Lista extra de argumentos para o curl
 
@@ -210,11 +222,24 @@ def download_with_curl(url, thumbprint, output_path, extra_args=None):
 
     cmd = [
         CURL_PATH,
-        '-s', '-k',
-        '--ssl-auto-client-cert',
+        '-sS', '-k',
+    ]
+
+    if thumbprint:
+        clean_thumbprint = re.sub(r'[^a-fA-F0-9]', '', thumbprint).upper()
+        cmd.append('--cert')
+        cmd.append(f"CurrentUser\\My\\{clean_thumbprint}")
+        # Força o uso do TLS 1.2, pois tokens A3 costumam falhar no TLS 1.3
+        # devido à exigência do algoritmo de assinatura RSASSA-PSS (não suportado).
+        cmd.append('--tls-max')
+        cmd.append('1.2')
+    else:
+        cmd.append('--ssl-auto-client-cert')
+
+    cmd.extend([
         '-o', output_path,
         url
-    ]
+    ])
 
     if extra_args:
         cmd.extend(extra_args)
@@ -275,6 +300,246 @@ def download_json_with_curl(url, thumbprint):
             except Exception:
                 pass
 
+def download_json_with_winhttp(url, cert_name):
+    """
+    Faz download de JSON utilizando a API WinHTTP COM nativa do Windows.
+    Bypass de erros do Schannel em tokens A3 e controle nativo de PIN.
+    """
+    import win32com.client
+    
+    # Extrai o Common Name (CN) do cert_name se for um Distinguished Name completo
+    cn_match = re.search(r'CN\s*=\s*([^,]+)', cert_name, re.IGNORECASE)
+    clean_cert_name = cn_match.group(1).strip() if cn_match else cert_name.strip()
+    
+    try:
+        # Cria o objeto WinHttpRequest
+        req = win32com.client.Dispatch("WinHttp.WinHttpRequest.5.1")
+        
+        # Opção 18: EnableCertificateRevocationCheck (False desativa a validação de revogação de CRL)
+        req.SetOption(18, False)
+        
+        # Opção 4: SslErrorIgnoreFlags (13056 ignora erros de certificado do servidor)
+        req.SetOption(4, 13056)
+        
+        # Abre a conexão síncrona
+        req.Open("GET", url, False)
+        
+        # Define o certificado do cliente
+        cert_path = f"CURRENT_USER\\MY\\{clean_cert_name}"
+        req.SetClientCertificate(cert_path)
+        
+        # Envia a requisição
+        req.Send()
+        
+        if req.Status == 200:
+            return True, req.ResponseText
+        else:
+            return False, f"HTTP {req.Status} - {req.StatusText}: {req.ResponseText[:200]}"
+    except Exception as e:
+        return False, f"Erro WinHTTP COM: {str(e)}"
+
+# --- Download via PowerShell + .NET (suporte a PIN do token A3) ---
+
+def _write_and_run_ps(ps_script, env_extra=None, timeout=120):
+    """
+    Escreve um script .ps1 temporário com um .log sidecar (definido via env_extra['LOG_PATH']),
+    executa com timeout, e retorna (stdout, stderr, returncode, log_content).
+
+    O .log é lido mesmo em caso de timeout para diagnóstico.
+    """
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.ps1', delete=False, encoding='utf-8') as f:
+        ps1_path = f.name
+
+    log_path = ps1_path.replace('.ps1', '.log')
+    env = os.environ.copy()
+    env['LOG_PATH'] = log_path
+    if env_extra:
+        env.update(env_extra)
+
+    try:
+        with open(ps1_path, 'w', encoding='utf-8') as f:
+            f.write(ps_script)
+
+        proc = subprocess.run(
+            ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1_path],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=timeout,
+            env=env,
+        )
+        rc = proc.returncode
+        stdout, stderr = proc.stdout, proc.stderr
+
+    except subprocess.TimeoutExpired:
+        stdout, stderr, rc = "", "TIMEOUT_EXPIRED", -1
+    except Exception as e:
+        stdout, stderr, rc = "", f"EXCEPTION: {e}", -2
+
+    log_text = ""
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as lf:
+                log_text = lf.read()
+        except Exception:
+            pass
+
+    for p in [ps1_path, log_path]:
+        try:
+            os.unlink(p)
+        except Exception:
+            pass
+
+    return stdout, stderr, rc, log_text
+
+
+def download_json_with_powershell(url, thumbprint):
+    """
+    Faz download usando .NET WebRequest com certificado A3.
+    Gera log detalhado para diagnóstico mesmo em caso de timeout.
+    """
+    thumb_upper = thumbprint.upper()
+    url_escaped = url.replace('"', '`"')
+
+    ps_script = (
+        'function Write-Log($m) {\n'
+        '    $ts = Get-Date -Format "HH:mm:ss.fff"\n'
+        '    "$ts $m" | Out-File -FilePath $env:LOG_PATH -Append -Encoding UTF8\n'
+        '}\n'
+        'Write-Log "INICIADO thumbprint=' + thumb_upper + '"\n'
+        'Write-Log "URL=' + url_escaped + '"\n'
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n'
+        '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12\n'
+        '[Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }\n'
+        'Write-Log "TLS_CONFIG OK"\n'
+        # certificado
+        'try {\n'
+        '    $cert = Get-ChildItem -Path "Cert:\\CurrentUser\\My\\' + thumb_upper + '" -ErrorAction Stop\n'
+        '    Write-Log "CERT subject=$($cert.Subject)"\n'
+        '} catch {\n'
+        '    Write-Log "CERT_ERR $($_.Exception.Message)"\n'
+        '    [Console]::Error.Write("ERRO_CERT:" + $_.Exception.Message)\n'
+        '    exit 1\n'
+        '}\n'
+        # request via HttpClient (evita deadlock do HttpWebRequest com CSP de token)
+        'try {\n'
+        '    Add-Type -AssemblyName System.Net.Http -ErrorAction Stop | Out-Null\n'
+        '    $handler = New-Object System.Net.Http.HttpClientHandler\n'
+        '    $handler.ClientCertificates.Add($cert)\n'
+        '    $client = New-Object System.Net.Http.HttpClient($handler)\n'
+        '    $client.Timeout = [System.TimeSpan]::FromSeconds(90)\n'
+        '    Write-Log "REQ chamando HttpClient.GetAsync()..."\n'
+        '    $resp = $client.GetAsync("' + url_escaped + '").GetAwaiter().GetResult()\n'
+        '    Write-Log "RESP StatusCode=$([int]$resp.StatusCode)"\n'
+        '    $content = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()\n'
+        '    $resp.Dispose()\n'
+        '    $client.Dispose()\n'
+        '    Write-Log "CONTEUDO Length=$($content.Length)"\n'
+        '    $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)\n'
+        '    $sout = [System.Console]::OpenStandardOutput()\n'
+        '    $sout.Write($bytes, 0, $bytes.Length)\n'
+        '    $sout.Flush()\n'
+        '    Write-Log "SUCESSO"\n'
+        '} catch {\n'
+        '    $msg = $_.Exception.Message\n'
+        '    if ($_.Exception.InnerException) { $msg += " | INNER:" + $_.Exception.InnerException.Message }\n'
+        '    if ($_.Exception.InnerException.InnerException) { $msg += " | INNER2:" + $_.Exception.InnerException.InnerException.Message }\n'
+        '    Write-Log "ERRO_REQ $msg"\n'
+        '    [Console]::Error.Write("ERRO_REQ:" + $msg)\n'
+        '    exit 1\n'
+        '}\n'
+    )
+
+    stdout, stderr, rc, log_text = _write_and_run_ps(ps_script, timeout=120)
+
+    diag_parts = []
+    if log_text:
+        diag_parts.append("[LOG]" + log_text.strip())
+    if stderr and stderr not in ("TIMEOUT_EXPIRED",):
+        diag_parts.append("[STDERR]" + stderr.strip())
+    diag = "\n".join(diag_parts)
+
+    if rc == 0 and stdout:
+        return True, stdout
+
+    if stderr == "TIMEOUT_EXPIRED":
+        return False, f"Timeout 120s.{diag}"
+    if rc == -2:
+        return False, f"Exceção:{diag}"
+
+    if "ERRO_CERT:" in stderr:
+        return False, f"Falha ao carregar certificado.{diag}"
+    if "ERRO_CADEIA:" in stderr:
+        return False, f"Falha ao montar cadeia.{diag}"
+    if "ERRO_REQ:" in stderr:
+        return False, f"Erro HTTP.{diag}"
+
+    return False, f"Erro.{diag}"
+
+
+class PlaywrightA3Client:
+    def __init__(self):
+        self.playwright = None
+        self.browser = None
+        self.context = None
+        self.page = None
+
+    def initialize(self, initial_url):
+        from playwright.sync_api import sync_playwright
+        print("\n[Playwright] Inicializando Chrome para conexão segura com token A3...")
+        self.playwright = sync_playwright().start()
+        
+        # Lançamos o Google Chrome instalado no sistema (channel="chrome")
+        # em modo headful (headless=False) para mostrar o PIN popup
+        self.browser = self.playwright.chromium.launch(
+            channel="chrome",
+            headless=False
+        )
+        self.context = self.browser.new_context(
+            ignore_https_errors=True
+        )
+        self.page = self.context.new_page()
+        
+        print(f"[Playwright] Navegando para URL de autenticação: {initial_url}")
+        print("[Token A3] Por favor, digite a senha (PIN) do token se solicitado na tela...")
+        
+        # Faz a primeira carga para autenticar e disparar o PIN
+        self.page.goto(initial_url, timeout=90000)
+        print("[Playwright] Canal SSL/TLS estabelecido com sucesso!")
+
+    def download_url(self, url):
+        # Executa o fetch dentro do contexto da página já autenticada
+        res = self.page.evaluate("""async (targetUrl) => {
+            try {
+                const r = await fetch(targetUrl);
+                const text = await r.text();
+                return { status: r.status, text: text, error: null };
+            } catch (e) {
+                return { status: 0, text: null, error: e.toString() };
+            }
+        }""", url)
+        
+        status_code = res.get("status", 0)
+        text = res.get("text", "")
+        error = res.get("error")
+        return status_code, text, error
+
+    def close(self):
+        try:
+            if self.browser:
+                self.browser.close()
+            if self.playwright:
+                self.playwright.stop()
+            print("[Playwright] Sessão finalizada com sucesso.")
+        except Exception:
+            pass
+
+
+def cleanup_powershell_client():
+    pass
+
+
 def main():
     """Teste direto do módulo"""
     print("=== cert_handler.py - Teste de Módulo ===\n")
@@ -298,24 +563,35 @@ def main():
         print("   Nenhum certificado de token encontrado\n")
 
     if token_certs:
-        print("4. Testando download com curl + A3...")
+        safe_print("4. Testando download com Playwright + Chrome + A3...")
+        safe_print("   (Um diálogo de PIN do token A3 deve aparecer na tela)")
         test_url = "https://adn.nfse.gov.br/contribuintes/DFe/1"
-        thumbprint = token_certs[0].get('thumbprint')
-        if thumbprint:
-            success, data = download_json_with_curl(test_url, thumbprint)
-            if success:
-                print(f"   OK - Resposta recebida ({len(data)} bytes)")
-                try:
-                    json_data = json.loads(data)
-                    print(f"   Keys no JSON: {list(json_data.keys())}")
-                except json.JSONDecodeError:
-                    print("   (não é JSON válido)")
-            else:
-                print(f"   ERRO: {data}")
+        subject = token_certs[0].get('subject')
+        if subject:
+            try:
+                client = PlaywrightA3Client()
+                client.initialize(test_url)
+                status_code, data, error = client.download_url(test_url)
+                client.close()
+                
+                if status_code == 200:
+                    safe_print(f"   OK - Resposta recebida ({len(data)} bytes)")
+                    try:
+                        json_data = json.loads(data)
+                        safe_print(f"   Keys no JSON: {list(json_data.keys())}")
+                    except json.JSONDecodeError:
+                        safe_print("   (não é JSON válido)")
+                elif status_code > 0:
+                    safe_print(f"   OK (Status HTTP {status_code}) - Conexão mTLS e TLS Handshake funcionaram!")
+                    safe_print(f"   Resposta: {data[:200]}")
+                else:
+                    safe_print(f"   ERRO de Rede/Chrome: {error}")
+            except Exception as e:
+                safe_print(f"   ERRO ao testar: {e}")
         else:
-            print("   ERRO - Sem thumbprint para testar")
+            safe_print("   ERRO - Sem subject para testar")
     else:
-        print("4. Teste pulado (sem certificados A3 disponíveis)")
+        safe_print("4. Teste pulado (sem certificados A3 disponíveis)")
 
     print("\n=== Teste concluído ===")
     return 0
