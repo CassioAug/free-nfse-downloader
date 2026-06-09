@@ -19,3 +19,6 @@ env/
 
 # Estado local do coletor (NSU)
 nsu_state.json
+
+# Cache de localização automática de NSU
+cache_nsu/

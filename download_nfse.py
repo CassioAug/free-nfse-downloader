@@ -5,7 +5,7 @@ import subprocess
 import re
 import logging
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 # Inicializa o logger global
 logger = logging.getLogger("free_nfse_downloader")
@@ -348,6 +348,82 @@ def save_last_nsu(state_key, env_choice, last_nsu):
     except Exception as e:
         logger.warning(f"Não foi possível salvar o estado do NSU em '{state_file}': {e}")
 
+# Cache de localização automática de NSU por data
+NSU_CACHE_DIR = "./cache_nsu"
+
+def _nsu_cache_path(cnpj, env_choice, start_date):
+    """Retorna o caminho do arquivo de cache para uma determinada (cnpj, ambiente, data)"""
+    key = f"{cnpj}_{env_choice}_{start_date.strftime('%Y-%m-%d')}"
+    safe_key = re.sub(r'[^a-zA-Z0-9_.-]', '_', key)
+    return os.path.join(NSU_CACHE_DIR, f"{safe_key}.json")
+
+def load_nsu_location_cache(cnpj, env_choice, start_date):
+    """
+    Verifica se existe cache de localização para (cnpj, ambiente, data_inicial).
+    
+    Retorna (nsu_encontrado, origem) ou (None, None) se não houver cache.
+    origem descreve se foi 'exato' (mesma data) ou 'aproximado' (data próxima).
+    """
+    if not cnpj:
+        return None, None
+    
+    # 1. Cache exato: mesma data já foi buscada antes
+    cache_path = _nsu_cache_path(cnpj, env_choice, start_date)
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            nsu = data.get("nsu_encontrado")
+            if nsu:
+                return nsu, "exato"
+        except Exception:
+            pass
+    
+    # 2. Cache aproximado: verifica se há caches de datas próximas (7 dias antes)
+    #    Útil para evitar busca binária completa quando se avança o período aos poucos
+    best_nsu = None
+    best_diff = None
+    for day_offset in range(1, 8):
+        test_date = start_date - timedelta(days=day_offset)
+        test_path = _nsu_cache_path(cnpj, env_choice, test_date)
+        if os.path.exists(test_path):
+            try:
+                with open(test_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                nsu = data.get("nsu_encontrado")
+                if nsu and (best_diff is None or day_offset < best_diff):
+                    best_nsu = nsu
+                    best_diff = day_offset
+            except Exception:
+                pass
+    
+    if best_nsu:
+        return best_nsu, f"aproximado ({best_diff} dias de diferença)"
+    
+    return None, None
+
+def save_nsu_location_cache(cnpj, env_choice, start_date, nsu_encontrado):
+    """Salva o resultado de uma localização de NSU no cache."""
+    if not cnpj or not nsu_encontrado:
+        return
+    
+    os.makedirs(NSU_CACHE_DIR, exist_ok=True)
+    cache_path = _nsu_cache_path(cnpj, env_choice, start_date)
+    
+    try:
+        data = {
+            "cnpj": cnpj,
+            "ambiente": env_choice,
+            "data_inicial": start_date.strftime("%d/%m/%Y"),
+            "nsu_encontrado": nsu_encontrado,
+            "timestamp": datetime.now().isoformat()
+        }
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        logger.info(f"Cache de localização NSU salvo: '{cache_path}'")
+    except Exception as e:
+        logger.warning(f"Não foi possível salvar cache de localização: {e}")
+
 def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
     url = f"{base_url}/DFe/{nsu_val}"
     for attempt in range(3):
@@ -410,11 +486,31 @@ def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
             time.sleep(2)
     return "error", None
 
-def locate_nsu_by_date(download_func, base_url, start_date):
+def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env_choice=None):
+    """
+    Localiza automaticamente o NSU correspondente à data inicial.
+    
+    Se cnpj_label e env_choice forem fornecidos, utiliza cache de localização
+    para evitar requisições desnecessárias.
+    """
+    low = 1
+    
+    # Tenta carregar do cache
+    if cnpj_label and env_choice:
+        cached_nsu, origem = load_nsu_location_cache(cnpj_label, env_choice, start_date)
+        if cached_nsu:
+            if origem == "exato":
+                print(f"\n[Cache] Localização já disponível para {start_date.strftime('%d/%m/%Y')}: NSU {cached_nsu}")
+                print(f"  (pule a busca e use a opção 'Continuar do último NSU' ou inicie manualmente)")
+                return cached_nsu
+            else:
+                print(f"\n[Cache] Usando referência de cache {origem}: NSU {cached_nsu}")
+                low = max(1, cached_nsu - 500)
+                print(f"  Iniciando busca a partir do NSU {low} (margem de segurança de 500 NSUs)")
+    
     print("\n[Busca Automática de NSU]")
     print(f"Buscando o NSU correspondente à data inicial {start_date.strftime('%d/%m/%Y')}...")
 
-    low = 1
     high = 1
 
     print("Identificando limite superior de NSUs cadastrados...")
@@ -430,9 +526,13 @@ def locate_nsu_by_date(download_func, base_url, start_date):
             high = max(high * 2, (max_nsu or high) + 1)
             print(f"  - Verificando lote em NSU {high}...")
 
+    # Se low foi definido pelo cache, ajusta high para no mínimo low
+    if low > 1:
+        high = max(high, low + 1)
+    
     print(f"Faixa de busca de NSUs definida: de {low} a {high}")
 
-    best_nsu = 1
+    best_nsu = low
     print("Iniciando pesquisa binária...")
     while low <= high:
         mid = (low + high) // 2
@@ -459,6 +559,11 @@ def locate_nsu_by_date(download_func, base_url, start_date):
     print(f"  - NSU mais próximo encontrado: {best_nsu}")
     print(f"  - Aplicando margem de segurança de {safety_margin} NSUs para cobrir notas fora de ordem.")
     print(f"  - NSU Inicial sugerido: {nsu_com_seguranca}")
+
+    # Salva no cache para uso futuro
+    if cnpj_label and env_choice:
+        save_nsu_location_cache(cnpj_label, env_choice, start_date, best_nsu)
+
     return nsu_com_seguranca
 
 def main():
@@ -689,7 +794,7 @@ def main():
             nsu = saved_nsu
             print(f"Utilizando NSU salvo: {nsu}")
         elif choice == 2:
-            nsu = locate_nsu_by_date(do_download, base_url, start_date)
+            nsu = locate_nsu_by_date(do_download, base_url, start_date, cnpj_label, env_choice)
         elif choice == 3:
             nsu = 1
             print("Iniciando do NSU 1.")
@@ -698,7 +803,7 @@ def main():
             nsu = int(nsu_input) if nsu_input.isdigit() else 1
     else:
         if choice == 1:
-            nsu = locate_nsu_by_date(do_download, base_url, start_date)
+            nsu = locate_nsu_by_date(do_download, base_url, start_date, cnpj_label, env_choice)
         elif choice == 2:
             nsu = 1
             print("Iniciando do NSU 1.")
