@@ -66,6 +66,13 @@ def check_install_dependencies():
 
 check_install_dependencies()
 
+try:
+    import cert_handler
+    HAS_CERT_HANDLER = True
+except ImportError:
+    print("\nAviso: Módulo 'cert_handler' não encontrado. Suporte a token A3 desabilitado.")
+    HAS_CERT_HANDLER = False
+
 if HAS_DANFSE_LIB:
     class CustomDanfse(Danfse):
         def _draw_service_provided(self):
@@ -248,20 +255,20 @@ def get_nfse_number(xml_str):
 
 import json
 
-def load_last_nsu(pem_path, env_choice):
+def load_last_nsu(state_key, env_choice):
     state_file = "nsu_state.json"
     if not os.path.exists(state_file):
         return None
     try:
         with open(state_file, "r", encoding="utf-8") as f:
             state = json.load(f)
-            key = f"{os.path.basename(pem_path)}_{env_choice}"
+            key = f"{state_key}_{env_choice}"
             return state.get(key)
     except Exception as e:
         logger.debug(f"Erro ao carregar nsu_state.json: {e}")
         return None
 
-def save_last_nsu(pem_path, env_choice, last_nsu):
+def save_last_nsu(state_key, env_choice, last_nsu):
     state_file = "nsu_state.json"
     state = {}
     if os.path.exists(state_file):
@@ -270,7 +277,7 @@ def save_last_nsu(pem_path, env_choice, last_nsu):
                 state = json.load(f)
         except Exception:
             state = {}
-    key = f"{os.path.basename(pem_path)}_{env_choice}"
+    key = f"{state_key}_{env_choice}"
     state[key] = last_nsu
     try:
         with open(state_file, "w", encoding="utf-8") as f:
@@ -279,22 +286,26 @@ def save_last_nsu(pem_path, env_choice, last_nsu):
     except Exception as e:
         logger.warning(f"Não foi possível salvar o estado do NSU em '{state_file}': {e}")
 
-def check_nsu_status_for_date(session, base_url, nsu_val, start_date):
+def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
     url = f"{base_url}/DFe/{nsu_val}"
     for attempt in range(3):
         try:
-            response = session.get(url, timeout=30)
-            if response.status_code == 200:
-                data = response.json()
+            status_code, response_text, error_msg = download_func(url)
+            if status_code == 200:
+                try:
+                    data = json.loads(response_text)
+                except json.JSONDecodeError:
+                    return "no_data", None
+
                 lote = data.get("LoteDFe")
                 if not lote:
                     xml_content = extract_xml(data)
                     if xml_content:
                         lote = [{"NSU": nsu_val, "ArquivoXml": base64.b64encode(gzip.compress(xml_content.encode('utf-8'))).decode('utf-8')}]
-                
+
                 if not lote:
                     return "no_data", None
-                
+
                 dates = []
                 max_nsu = nsu_val
                 for item in lote:
@@ -319,17 +330,17 @@ def check_nsu_status_for_date(session, base_url, nsu_val, start_date):
                             dt = get_emission_date(xml_content)
                             if dt:
                                 dates.append(dt)
-                
+
                 if not dates:
                     return "no_dates", max_nsu
-                
+
                 if any(d >= start_date for d in dates):
                     return "before_or_within", max_nsu
                 else:
                     return "after", max_nsu
-            elif response.status_code == 404:
+            elif status_code == 404:
                 return "404", None
-            elif response.status_code == 429:
+            elif status_code == 429:
                 time.sleep(10)
             else:
                 time.sleep(2)
@@ -337,16 +348,16 @@ def check_nsu_status_for_date(session, base_url, nsu_val, start_date):
             time.sleep(2)
     return "error", None
 
-def locate_nsu_by_date(session, base_url, start_date):
+def locate_nsu_by_date(download_func, base_url, start_date):
     print("\n[Busca Automática de NSU]")
     print(f"Buscando o NSU correspondente à data inicial {start_date.strftime('%d/%m/%Y')}...")
-    
+
     low = 1
     high = 1
-    
+
     print("Identificando limite superior de NSUs cadastrados...")
     while True:
-        status, max_nsu = check_nsu_status_for_date(session, base_url, high, start_date)
+        status, max_nsu = check_nsu_status_for_date(download_func, base_url, high, start_date)
         if status == "404":
             break
         elif status in ["error", "no_data"]:
@@ -356,16 +367,16 @@ def locate_nsu_by_date(session, base_url, start_date):
                 break
             high = max(high * 2, (max_nsu or high) + 1)
             print(f"  - Verificando lote em NSU {high}...")
-            
+
     print(f"Faixa de busca de NSUs definida: de {low} a {high}")
-    
+
     best_nsu = 1
     print("Iniciando pesquisa binária...")
     while low <= high:
         mid = (low + high) // 2
         print(f"  - Analisando NSU {mid}... ", end="", flush=True)
-        status, max_nsu = check_nsu_status_for_date(session, base_url, mid, start_date)
-        
+        status, max_nsu = check_nsu_status_for_date(download_func, base_url, mid, start_date)
+
         if status == "before_or_within":
             print("contém notas do período ou posteriores. Buscando mais abaixo...")
             best_nsu = mid
@@ -379,7 +390,7 @@ def locate_nsu_by_date(session, base_url, start_date):
         else:
             print("sem dados suficientes. Buscando mais abaixo por segurança...")
             high = mid - 1
-            
+
     safety_margin = 100
     nsu_com_seguranca = max(1, best_nsu - safety_margin)
     print(f"\nBusca concluída!")
@@ -390,33 +401,105 @@ def locate_nsu_by_date(session, base_url, start_date):
 
 def main():
     print("=== free-nfse-downloader ===")
-    print("Este script consome a API do Ambiente de Dados Nacional utilizando seu certificado PEM.\n")
-    
-    # 1. Caminho do Certificado PEM
-    pem_path = input("Caminho para o certificado PEM (gerado pelo conversor): ").strip().strip("'\"")
-    if not os.path.exists(pem_path):
-        print(f"Erro: O arquivo ou diretório do certificado '{pem_path}' não foi encontrado.")
-        return 1
-        
-    if os.path.isdir(pem_path):
-        print(f"\nO caminho informado é um diretório. Procurando certificados PEM (.pem) em '{pem_path}'...")
-        arquivos = [f for f in os.listdir(pem_path) if f.lower().endswith('.pem')]
-        if not arquivos:
-            print("Nenhum arquivo .pem foi encontrado neste diretório.")
+    print("Este script consome a API do Ambiente de Dados Nacional.\n")
+
+    cert_type = None
+    pem_path = None
+    a3_thumbprint = None
+    a3_cert_info = None
+
+    print("Selecione o tipo de certificado:")
+    print("1 - Arquivo PEM (certificado em arquivo .pem)")
+    if HAS_CERT_HANDLER:
+        print("2 - Token A3 (GD Burti / SafeSign - USB)")
+
+    default_cert_option = "1"
+    if HAS_CERT_HANDLER:
+        default_cert_option = input(f"Opção [Padrão: {default_cert_option}]: ").strip() or default_cert_option
+    else:
+        input(f"Opção [Padrão: {default_cert_option}]: ").strip() or default_cert_option
+
+    if HAS_CERT_HANDLER and default_cert_option == "2":
+        cert_type = "A3"
+        print("\n[Modo: Token A3 - Windows Certificate Store]")
+
+        token_certs = cert_handler.list_token_certs()
+        if not token_certs:
+            print("Erro: Nenhum certificado de token (A3) encontrado.")
+            print("Verifique se:")
+            print("  1. O token USB está conectado")
+            print("  2. O driver SafeSign está instalado")
+            print("  3. O certificado foi importado para o Windows Certificate Store")
             return 1
-        print("Certificados PEM encontrados:")
-        for idx, arq in enumerate(arquivos, 1):
-            print(f"  {idx} - {arq}")
-        try:
-            opcao = input(f"Selecione o número do certificado (1-{len(arquivos)}): ").strip()
-            if not opcao.isdigit() or not (1 <= int(opcao) <= len(arquivos)):
-                print("Opção inválida.")
+
+        print(f"\nEncontrado(s) {len(token_certs)} certificado(s) de token:\n")
+        for idx, cert in enumerate(token_certs, 1):
+            subject = cert.get('subject', 'Desconhecido')
+            thumbprint = cert.get('thumbprint', 'N/A')
+            notafter = cert.get('notafter', 'N/A')
+            print(f"  {idx} - {subject}")
+            print(f"      Validade: {notafter}")
+            print(f"      Thumbprint: {thumbprint}")
+            print()
+
+        if len(token_certs) == 1:
+            selected_index = 0
+            print(f"Auto-selecionado certificado único: {token_certs[0].get('subject', 'N/A')}")
+        else:
+            try:
+                selected_str = input(f"Selecione o número do certificado (1-{len(token_certs)}): ").strip()
+                if not selected_str.isdigit() or not (1 <= int(selected_str) <= len(token_certs)):
+                    print("Opção inválida.")
+                    return 1
+                selected_index = int(selected_str) - 1
+            except (KeyboardInterrupt, SystemExit):
+                print("\nOperação cancelada.")
                 return 1
-            pem_path = os.path.join(pem_path, arquivos[int(opcao) - 1])
-            print(f"Arquivo selecionado: {pem_path}")
-        except (KeyboardInterrupt, SystemExit):
-            print("\nOperação cancelada.")
+
+        a3_cert_info = token_certs[selected_index]
+        a3_thumbprint = a3_cert_info.get('thumbprint')
+        if not a3_thumbprint:
+            print("Erro: Certificado selecionado não possui thumbprint.")
             return 1
+
+        print(f"Certificado selecionado: {a3_cert_info.get('subject', 'N/A')}")
+        print(f"Thumbprint: {a3_thumbprint}")
+
+    else:
+        cert_type = "PEM"
+        print("\n[Modo: Certificado em arquivo PEM]")
+        pem_path = input("Caminho para o certificado PEM (gerado pelo conversor) [Padrão: ./certificados]: ").strip().strip("'\"")
+        if not pem_path:
+            pem_path = "./certificados"
+
+        if not os.path.exists(pem_path):
+            print(f"Erro: O arquivo ou diretório do certificado '{pem_path}' não foi encontrado.")
+            return 1
+
+        if os.path.isdir(pem_path):
+            print(f"\nO caminho informado é um diretório. Procurando certificados PEM (.pem) em '{pem_path}'...")
+            arquivos = [f for f in os.listdir(pem_path) if f.lower().endswith('.pem')]
+            if not arquivos:
+                print("Nenhum arquivo .pem foi encontrado neste diretório.")
+                return 1
+            print("Certificados PEM encontrados:")
+            for idx, arq in enumerate(arquivos, 1):
+                print(f"  {idx} - {arq}")
+            try:
+                opcao = input(f"Selecione o número do certificado (1-{len(arquivos)}): ").strip()
+                if not opcao.isdigit() or not (1 <= int(opcao) <= len(arquivos)):
+                    print("Opção inválida.")
+                    return 1
+                pem_path = os.path.join(pem_path, arquivos[int(opcao) - 1])
+                print(f"Arquivo selecionado: {pem_path}")
+            except (KeyboardInterrupt, SystemExit):
+                print("\nOperação cancelada.")
+                return 1
+
+    if cert_type == "PEM":
+        state_key = os.path.basename(pem_path)
+    else:
+        state_key = f"A3_{a3_thumbprint}"
         
     # 2. Escolha do Ambiente
     print("\nEscolha o Ambiente:")
@@ -464,16 +547,31 @@ def main():
     logger.addHandler(console_handler)
 
     # 5. Inicialização da Sessão HTTP com mTLS e User-Agent
-    session = requests.Session()
-    session.cert = (pem_path, pem_path)
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    })
+    if cert_type == "PEM":
+        session = requests.Session()
+        session.cert = (pem_path, pem_path)
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        })
+    else:
+        session = None
+
+    def do_download(url):
+        """Executa o download usando o método apropriado (PEM ou A3)"""
+        if cert_type == "PEM":
+            response = session.get(url, timeout=30)
+            return response.status_code, response.text, None
+        else:
+            success, data = cert_handler.download_json_with_curl(url, a3_thumbprint)
+            if success:
+                return 200, data, None
+            else:
+                return 0, None, data
 
     # 6. Definição do NSU Inicial
-    saved_nsu = load_last_nsu(pem_path, env_choice)
+    saved_nsu = load_last_nsu(state_key, env_choice)
     
     print("\nDefinição do NSU Inicial de busca:")
     options = []
@@ -499,7 +597,7 @@ def main():
             nsu = saved_nsu
             print(f"Utilizando NSU salvo: {nsu}")
         elif choice == 2:
-            nsu = locate_nsu_by_date(session, base_url, start_date)
+            nsu = locate_nsu_by_date(do_download, base_url, start_date)
         elif choice == 3:
             nsu = 1
             print("Iniciando do NSU 1.")
@@ -508,7 +606,7 @@ def main():
             nsu = int(nsu_input) if nsu_input.isdigit() else 1
     else:
         if choice == 1:
-            nsu = locate_nsu_by_date(session, base_url, start_date)
+            nsu = locate_nsu_by_date(do_download, base_url, start_date)
         elif choice == 2:
             nsu = 1
             print("Iniciando do NSU 1.")
@@ -516,9 +614,11 @@ def main():
             nsu_input = input("Digite o NSU Inicial manualmente: ").strip()
             nsu = int(nsu_input) if nsu_input.isdigit() else 1
 
+    cert_label = pem_path if cert_type == "PEM" else a3_cert_info.get('subject', 'A3 Token')
     logger.info(f"\nIniciando busca no período: {start_date.strftime('%d/%m/%Y')} até {end_date.strftime('%d/%m/%Y')}")
     logger.info(f"Começando do NSU {nsu}. Salvando em: '{output_dir}'")
     logger.info(f"Arquivo de log: '{log_file}'")
+    logger.info(f"Tipo de certificado: {cert_type} - {cert_label}")
     logger.info("-" * 60)
 
     consecutive_after_period = 0
@@ -528,13 +628,18 @@ def main():
         url = f"{base_url}/DFe/{nsu}"
         try:
             logger.info(f"Consultando lote de documentos a partir do NSU {nsu}...")
-            response = session.get(url, timeout=30)
-            
-            if response.status_code == 200:
-                data = response.json()
+            status_code, response_text, error_msg = do_download(url)
+
+            if status_code == 200:
+                try:
+                    data = json.loads(response_text)
+                except json.JSONDecodeError as e:
+                    logger.error(f"  [NSU {nsu}] Erro ao parsear JSON: {e}")
+                    nsu += 1
+                    continue
+
                 lote = data.get("LoteDFe")
-                
-                # Se o lote estiver vazio ou não existir, tenta ler o XML diretamente (fallback)
+
                 if not lote:
                     xml_content = extract_xml(data)
                     if xml_content:
@@ -638,30 +743,31 @@ def main():
                     nsu += 1
                 else:
                     nsu = max_nsu_in_batch
-                
-            elif response.status_code == 404:
-                # 404 significa que atingimos o fim da fila de NSUs cadastrados no Ambiente Nacional
+
+            elif status_code == 404:
                 logger.info(f"\nFim da fila: O NSU {nsu} não foi encontrado (fim dos registros).")
                 break
-            elif response.status_code == 429:
+            elif status_code == 429:
                 logger.warning("Alerta: Bloqueio temporário por limite de requisições (429). Aguardando 10 segundos...")
                 time.sleep(10)
-            else:
-                logger.error(f"Erro ao buscar NSU {nsu}: Status {response.status_code} - {response.text}")
+            elif error_msg:
+                logger.error(f"Erro ao buscar NSU {nsu}: {error_msg}")
                 nsu += 1
-                
+            else:
+                logger.error(f"Erro ao buscar NSU {nsu}: Status {status_code}")
+                nsu += 1
+
         except Exception as e:
             logger.error(f"Falha de conexão no NSU {nsu}: {e}. Tentando novamente em 5 segundos...")
             time.sleep(5)
 
     logger.info("-" * 60)
     logger.info(f"Processo finalizado. Total de notas baixadas no período: {downloaded_count}")
-    
+
     last_processed_nsu = nsu - 1
     logger.info(f"Último NSU processado: {last_processed_nsu}")
-    
-    # Salva o último NSU no estado
-    save_last_nsu(pem_path, env_choice, last_processed_nsu)
+
+    save_last_nsu(state_key, env_choice, last_processed_nsu)
     
     logger.info("Estado do NSU atualizado. Pronto para o próximo download!")
     return 0

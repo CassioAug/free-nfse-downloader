@@ -9,11 +9,17 @@ def main():
     print("=== Conversor de Certificado Digital: PFX/P12 para PEM ===")
     print("Este script extrai a chave privada desprotegida e o certificado para uso com mTLS (requests).\n")
     
+    cert_dir = "./certificados"
+    if not os.path.exists(cert_dir):
+        os.makedirs(cert_dir)
+
     # Verifica argumentos CLI, senão pergunta de forma interativa
     if len(sys.argv) >= 2:
         pfx_path = sys.argv[1]
     else:
-        pfx_path = input("Caminho para o arquivo .pfx ou .p12: ").strip()
+        pfx_path = input(f"Caminho para o arquivo .pfx ou .p12 [Padrão: {cert_dir}]: ").strip()
+        if not pfx_path:
+            pfx_path = cert_dir
         
     # Remove aspas caso o usuário tenha arrastado o arquivo para o terminal
     pfx_path = pfx_path.strip("'\"")
@@ -50,11 +56,12 @@ def main():
     if len(sys.argv) >= 4:
         pem_path = sys.argv[3]
     else:
-        default_pem = os.path.splitext(pfx_path)[0] + ".pem"
+        base_name = os.path.basename(pfx_path)
+        default_pem = os.path.join(cert_dir, os.path.splitext(base_name)[0] + ".pem")
         pem_path = input(f"Caminho do arquivo PEM de saída [Padrão: {default_pem}]: ").strip()
         if not pem_path:
             pem_path = default_pem
-            
+
     pem_path = pem_path.strip("'\"")
 
     print("\nLendo arquivo PFX...")

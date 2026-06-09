@@ -63,24 +63,24 @@ Se você não tem o Git ou prefere baixar manualmente:
    - **No macOS / Linux:** Clique com o botão direito em um espaço vazio dentro da pasta e selecione **Abrir no Terminal** (ou "Open in Terminal").
 
 ### Passo 2: Converter o Certificado Digital
-Para rodar o conversor:
+Coloque o seu arquivo `.pfx` ou `.p12` na pasta `./certificados` (que será criada automaticamente caso não exista). Para rodar o conversor:
 ```bash
 python convert_pfx.py
 ```
 *O script é interativo:*
-1. Informe o caminho do seu arquivo `.pfx` ou `.p12` (ou informe a pasta para que ele liste os certificados encontrados).
+1. Informe o caminho do seu arquivo `.pfx` ou `.p12` (pressione Enter para listar os certificados dentro da pasta `./certificados`).
 2. Digite a senha do certificado.
-3. Defina o nome do arquivo de saída (ex: `certificado.pem`).
+3. Defina o nome do arquivo de saída (por padrão, ele será salvo na pasta `./certificados` com a extensão `.pem`).
 
 ### Passo 3: Executar o Coletor de Notas
 Para iniciar o download:
 ```bash
 python download_nfse.py
 ```
-1. Informe o caminho do certificado `.pem` gerado no passo anterior (digite `.` para que o script liste os arquivos `.pem` da pasta atual).
+1. Informe o caminho do certificado `.pem` gerado no passo anterior (pressione Enter para listar e selecionar os arquivos `.pem` da pasta `./certificados`).
 2. Escolha o ambiente: `1` para Produção ou `2` para Homologação/Testes.
 3. Informe a data inicial e data final do período desejado (Formato: `DD/MM/YYYY`).
-4. Defina o **NSU Inicial** de busca. *Se for a primeira execução do CNPJ no sistema nacional, inicie com `1`. Para buscas futures, utilize o último NSU impresso pelo script ao final da execução anterior.*
+4. Defina o **NSU Inicial** de busca. *Se for a primeira execução do CNPJ no sistema nacional, inicie com `1`. Para buscas futuras, utilize o último NSU impresso pelo script ao final da execução anterior.*
 5. Informe o nome da pasta de destino onde os arquivos serão salvos (padrão: `./notas_fiscais`).
 
 ### Passo 4: Converter XMLs Locais para PDF (Opcional)

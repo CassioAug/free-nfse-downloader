@@ -2,6 +2,7 @@
 *.pem
 *.pfx
 *.p12
+certificados/
 
 # Ignorar downloads de notas fiscais, PDFs e arquivos de log
 notas_fiscais/
