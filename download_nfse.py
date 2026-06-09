@@ -253,6 +253,68 @@ def get_nfse_number(xml_str):
         logger.debug(f"Erro ao parsear número do XML: {e}")
     return None
 
+def extract_cnpj_from_subject(subject_str):
+    """
+    Extrai o CNPJ (14 dígitos) do campo Subject de um certificado digital.
+    
+    Tenta encontrar em vários formatos comuns de ACs brasileiras:
+      - 'CNPJ: 12345678000199' ou 'CPF/CNPJ: 12345678000199'
+      - 'OU=12345678000199'
+      - 14 dígitos consecutivos no subject
+    """
+    if not subject_str:
+        return None
+    
+    # 1. Tenta padrão explícito "CNPJ:" ou "CPF/CNPJ:" seguido de 14 dígitos
+    match = re.search(r'(?:CPF\s*/\s*CNPJ|CNPJ)\s*:\s*(\d{14})', subject_str, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    
+    # 2. Tenta 14 dígitos consecutivos no subject
+    match = re.search(r'(\d{14})', subject_str)
+    if match:
+        return match.group(1)
+    
+    return None
+
+
+def extract_cnpj_from_pem(pem_path):
+    """
+    Extrai o CNPJ de um arquivo PEM de certificado digital.
+    Usa a biblioteca cryptography para ler o certificado e obter o subject.
+    """
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.backends import default_backend
+        
+        with open(pem_path, "rb") as f:
+            pem_data = f.read()
+        
+        try:
+            cert = x509.load_pem_x509_certificate(pem_data, default_backend())
+            return extract_cnpj_from_subject(str(cert.subject))
+        except Exception:
+            # PEM pode conter chave privada + certificado. Extrai apenas o bloco BEGIN/END CERTIFICATE
+            cert_match = re.search(
+                r'-----BEGIN CERTIFICATE-----\n.*?-----END CERTIFICATE-----',
+                pem_data.decode('utf-8', errors='ignore'),
+                re.DOTALL
+            )
+            if cert_match:
+                cert = x509.load_pem_x509_certificate(
+                    cert_match.group(0).encode('utf-8'),
+                    default_backend()
+                )
+                return extract_cnpj_from_subject(str(cert.subject))
+            return None
+    except ImportError:
+        logger.warning("Biblioteca cryptography não disponível para extrair CNPJ do PEM.")
+        return None
+    except Exception as e:
+        logger.debug(f"Erro ao extrair CNPJ do PEM: {e}")
+        return None
+
+
 import json
 
 def load_last_nsu(state_key, env_choice):
@@ -465,6 +527,9 @@ def main():
         print(f"Certificado selecionado: {a3_cert_info.get('subject', 'N/A')}")
         print(f"Thumbprint: {a3_thumbprint}")
 
+        # Extrai CNPJ do subject do certificado A3
+        cnpj = extract_cnpj_from_subject(a3_cert_info.get('subject', ''))
+
     else:
         cert_type = "PEM"
         print("\n[Modo: Certificado em arquivo PEM]")
@@ -496,10 +561,31 @@ def main():
                 print("\nOperação cancelada.")
                 return 1
 
+        # Extrai CNPJ do certificado PEM
+        cnpj = extract_cnpj_from_pem(pem_path)
+
     if cert_type == "PEM":
         state_key = os.path.basename(pem_path)
     else:
         state_key = f"A3_{a3_thumbprint}"
+
+    # Aplica subpasta com CNPJ no diretório de saída
+    cnpj_label = None
+    if cnpj:
+        cnpj_label = re.sub(r'\D', '', cnpj)  # garante só dígitos
+        print(f"\nCNPJ detectado no certificado: {cnpj_label}")
+    else:
+        print("\nAviso: Não foi possível extrair o CNPJ do certificado.")
+        resp = input("Deseja digitar o CNPJ manualmente? (s/N): ").strip().lower()
+        if resp == 's':
+            cnpj_manual = input("CNPJ (apenas números, 14 dígitos): ").strip()
+            cnpj_manual = re.sub(r'\D', '', cnpj_manual)
+            if len(cnpj_manual) == 14:
+                cnpj_label = cnpj_manual
+            else:
+                print("CNPJ inválido. As notas serão salvas na raiz da pasta de saída.")
+        else:
+            print("As notas serão salvas na raiz da pasta de saída.")
         
     # 2. Escolha do Ambiente
     print("\nEscolha o Ambiente:")
@@ -528,6 +614,12 @@ def main():
 
     # 4. Diretório de Saída
     output_dir = input("\nPasta para salvar as notas [Padrão: ./notas_fiscais]: ").strip().strip("'\"") or "./notas_fiscais"
+    
+    # Cria subpasta com CNPJ se disponível
+    if cnpj_label:
+        output_dir = os.path.join(output_dir, cnpj_label)
+        print(f"As notas serão salvas em: '{output_dir}'")
+    
     os.makedirs(output_dir, exist_ok=True)
     
     # --- Configuração do Logger ---
@@ -615,6 +707,8 @@ def main():
             nsu = int(nsu_input) if nsu_input.isdigit() else 1
 
     cert_label = pem_path if cert_type == "PEM" else a3_cert_info.get('subject', 'A3 Token')
+    if cnpj_label:
+        logger.info(f"CNPJ da empresa: {cnpj_label}")
     logger.info(f"\nIniciando busca no período: {start_date.strftime('%d/%m/%Y')} até {end_date.strftime('%d/%m/%Y')}")
     logger.info(f"Começando do NSU {nsu}. Salvando em: '{output_dir}'")
     logger.info(f"Arquivo de log: '{log_file}'")
