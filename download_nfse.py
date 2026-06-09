@@ -6,6 +6,7 @@ import re
 import logging
 import time
 from datetime import datetime, date, timedelta
+from organize_nfse import get_service_type
 
 # Inicializa o logger global
 logger = logging.getLogger("free_nfse_downloader")
@@ -253,112 +254,40 @@ def get_nfse_number(xml_str):
         logger.debug(f"Erro ao parsear número do XML: {e}")
     return None
 
-def get_service_type(xml_str, cnpj_label):
-    """
-    Determina se a NFS-e é um serviço prestado ou tomado, comparando
-    o CNPJ da empresa (do certificado) com o CNPJ do emitente/prestador
-    e do tomador no XML.
-    
-    Estratégia:
-    1. Procura CNPJ dentro de tags-filhas de <emit>, <prest> (prestador)
-       e <toma>, <tomador> (tomador)
-    2. Se não encontrar, varre o XML inteiro por tags <CNPJ> e tenta
-       inferir pela ordem (primeiro CNPJ é do prestador, segundo é tomador)
-    
-    Retorna 'prestado', 'tomado' ou None (indeterminado).
-    """
-    if not cnpj_label or not xml_str:
-        return None
-    
-    try:
-        root = ET.fromstring(xml_str)
-        cnpjs_emit = []
-        cnpjs_toma = []
-        
-        for el in root.iter():
-            tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
-            
-            # Tags de prestador: emit, prest
-            if tag_local.lower() in ('emit', 'prest'):
-                for child in el.iter():
-                    child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-                    if child_tag.upper() == 'CNPJ' and child.text:
-                        cnpjs_emit.append(re.sub(r'\D', '', child.text))
-            
-            # Tags de tomador: toma, tomador
-            if tag_local.lower() in ('toma', 'tomador'):
-                for child in el.iter():
-                    child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-                    if child_tag.upper() == 'CNPJ' and child.text:
-                        cnpjs_toma.append(re.sub(r'\D', '', child.text))
-        
-        # Se CNPJ encontrado em prestador
-        if cnpj_label in cnpjs_emit:
-            logger.info(f"    -> CNPJ {cnpj_label} é PRESTADOR (encontrado em emit/prest)")
-            return 'prestado'
-        
-        # Se CNPJ encontrado em tomador
-        if cnpj_label in cnpjs_toma:
-            logger.info(f"    -> CNPJ {cnpj_label} é TOMADOR (encontrado em toma)")
-            return 'tomado'
-        
-        # --- FALLBACK: varre o XML inteiro por tags CNPJ ---
-        # Útil se o XML usar uma estrutura de tags diferente
-        todos_cnpjs = []
-        for el in root.iter():
-            tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
-            if tag_local.upper() == 'CNPJ' and el.text:
-                todos_cnpjs.append(re.sub(r'\D', '', el.text))
-        
-        # Remove duplicatas preservando ordem
-        vistos = set()
-        cnpj_ordenados = []
-        for c in todos_cnpjs:
-            if c not in vistos:
-                vistos.add(c)
-                cnpj_ordenados.append(c)
-        
-        if cnpj_label in cnpj_ordenados:
-            idx = cnpj_ordenados.index(cnpj_label)
-            if idx == 0:
-                logger.info(f"    -> CNPJ {cnpj_label} é o primeiro CNPJ do XML → PRESTADOR (fallback)")
-                return 'prestado'
-            elif idx >= 1:
-                logger.info(f"    -> CNPJ {cnpj_label} é o {idx+1}º CNPJ do XML → TOMADOR (fallback)")
-                return 'tomado'
-        
-        logger.warning(f"Não foi possível classificar serviço. "
-                       f"cnpj_label={cnpj_label}, "
-                       f"emit={cnpjs_emit}, toma={cnpjs_toma}, "
-                       f"todos_CNPJs={cnpj_ordenados}")
-        return None
-        
-    except Exception as e:
-        logger.warning(f"Erro ao classificar tipo de serviço: {e}")
-        return None
-
 def extract_cnpj_from_subject(subject_str):
     """
     Extrai o CNPJ (14 dígitos) do campo Subject de um certificado digital.
     
-    Tenta encontrar em vários formatos comuns de ACs brasileiras:
-      - 'CNPJ: 12345678000199' ou 'CPF/CNPJ: 12345678000199'
-      - 'OU=12345678000199'
-      - 14 dígitos consecutivos no subject
+    Estratégias por ordem de prioridade:
+      1. CNPJ após ':' no campo CN (commonName) — formato típico de e-CNPJ:
+         "CN=Nome da Empresa:12345678000199"
+      2. Padrão explícito 'CNPJ: 12345678000199' ou 'CPF/CNPJ: 12345678000199'
+      3. Primeiro grupo de 14 dígitos dentro de campos OU (OrganizationalUnit)
+      4. Primeiro grupo de 14 dígitos em qualquer parte do subject (fallback original)
     """
     if not subject_str:
         return None
-    
-    # 1. Tenta padrão explícito "CNPJ:" ou "CPF/CNPJ:" seguido de 14 dígitos
+
+    # 1. CNPJ após ':' no campo CN: "CN=Nome:12345678000199"
+    match = re.search(r'(?:^|[\s,])CN\s*=\s*[^:]*:(\d{14})(?:\s*[)>,\s]|$)', subject_str, re.IGNORECASE)
+    if match:
+        return match.group(1)
+
+    # 2. Padrão explícito "CNPJ:" ou "CPF/CNPJ:" seguido de 14 dígitos
     match = re.search(r'(?:CPF\s*/\s*CNPJ|CNPJ)\s*:\s*(\d{14})', subject_str, re.IGNORECASE)
     if match:
         return match.group(1)
-    
-    # 2. Tenta 14 dígitos consecutivos no subject
+
+    # 3. CNPJ em campos OU: "OU=12345678000199"
+    match = re.search(r'(?:^|[\s,])OU\s*=\s*(\d{14})(?:\s*[)>,\s]|$)', subject_str, re.IGNORECASE)
+    if match:
+        return match.group(1)
+
+    # 4. Fallback: primeiro grupo de 14 dígitos no subject todo
     match = re.search(r'(\d{14})', subject_str)
     if match:
         return match.group(1)
-    
+
     return None
 
 
@@ -366,17 +295,24 @@ def extract_cnpj_from_pem(pem_path):
     """
     Extrai o CNPJ de um arquivo PEM de certificado digital.
     Usa a biblioteca cryptography para ler o certificado e obter o subject.
+    
+    Estratégias por ordem de prioridade:
+      1. CNPJ após ':' no campo CN (commonName) — via OID estruturado
+      2. CNPJ em campos OU (organizationalUnitName) — via OID estruturado
+      3. Fallback para extract_cnpj_from_subject com string do subject
+      4. Extração do nome do arquivo PEM (padrão: *_{CNPJ}.pem)
     """
     try:
         from cryptography import x509
         from cryptography.hazmat.backends import default_backend
-        
+        from cryptography.x509.oid import NameOID
+
         with open(pem_path, "rb") as f:
             pem_data = f.read()
-        
+
+        cert = None
         try:
             cert = x509.load_pem_x509_certificate(pem_data, default_backend())
-            return extract_cnpj_from_subject(str(cert.subject))
         except Exception:
             # PEM pode conter chave privada + certificado. Extrai apenas o bloco BEGIN/END CERTIFICATE
             cert_match = re.search(
@@ -389,8 +325,34 @@ def extract_cnpj_from_pem(pem_path):
                     cert_match.group(0).encode('utf-8'),
                     default_backend()
                 )
-                return extract_cnpj_from_subject(str(cert.subject))
-            return None
+
+        if cert:
+            # 1. CNPJ após ':' no campo CN: "CN=Nome:12345678000199"
+            cn_attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+            if cn_attrs:
+                match = re.search(r':(\d{14})', cn_attrs[0].value)
+                if match:
+                    return match.group(1)
+
+            # 2. CNPJ em campos OU
+            ou_attrs = cert.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+            for ou in ou_attrs:
+                match = re.search(r'(\d{14})', ou.value)
+                if match:
+                    return match.group(1)
+
+            # 3. Fallback string-based
+            cnpj = extract_cnpj_from_subject(str(cert.subject))
+            if cnpj:
+                return cnpj
+
+        # 4. Último recurso: extrair do nome do arquivo
+        match = re.search(r'_(\d{14})\.pem$', os.path.basename(pem_path))
+        if match:
+            return match.group(1)
+
+        return None
+
     except ImportError:
         logger.warning("Biblioteca cryptography não disponível para extrair CNPJ do PEM.")
         return None
@@ -512,6 +474,7 @@ def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
     url = f"{base_url}/DFe/{nsu_val}"
     for attempt in range(3):
         try:
+            time.sleep(0.5)
             status_code, response_text, error_msg = download_func(url)
             if status_code == 200:
                 try:
@@ -563,7 +526,9 @@ def check_nsu_status_for_date(download_func, base_url, nsu_val, start_date):
             elif status_code == 404:
                 return "404", None
             elif status_code == 429:
-                time.sleep(10)
+                sleep_time = 10 * (2 ** attempt)
+                logger.warning(f"Limite de requisições (429). Aguardando {sleep_time}s (tentativa {attempt+1}/3)...")
+                time.sleep(sleep_time)
             else:
                 time.sleep(2)
         except Exception:
@@ -600,15 +565,21 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
     print("Identificando limite superior de NSUs cadastrados...")
     while True:
         status, max_nsu = check_nsu_status_for_date(download_func, base_url, high, start_date)
-        if status == "404":
+        if status == "before_or_within":
+            print(f"  - Limite identificado: NSU {high}")
             break
-        elif status in ["error", "no_data"]:
-            break
-        else:
-            if status == "before_or_within":
-                break
+        elif status == "after":
             high = max(high * 2, (max_nsu or high) + 1)
             print(f"  - Verificando lote em NSU {high}...")
+        elif status == "404":
+            print(f"  - Fim dos registros em NSU {high}")
+            break
+        elif status in ("no_data", "no_dates"):
+            high = max(high * 2, (max_nsu or high) + 1)
+            print(f"  - NSU {high} (sem dados, avançando)...")
+        else:
+            print(f"  - Erro ao verificar NSU {high}, interrompendo busca de limite.")
+            break
 
     # Se low foi definido pelo cache, ajusta high para no mínimo low
     if low > 1:
@@ -616,7 +587,8 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
     
     print(f"Faixa de busca de NSUs definida: de {low} a {high}")
 
-    best_nsu = low
+    best_nsu = None
+    nsu_encontrado = False
     print("Iniciando pesquisa binária...")
     while low <= high:
         mid = (low + high) // 2
@@ -626,6 +598,7 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
         if status == "before_or_within":
             print("contém notas do período ou posteriores. Buscando mais abaixo...")
             best_nsu = mid
+            nsu_encontrado = True
             high = mid - 1
         elif status == "after":
             print("apenas notas anteriores ao período. Buscando mais acima...")
@@ -638,14 +611,17 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
             high = mid - 1
 
     safety_margin = 100
+    if best_nsu is None:
+        best_nsu = low
+        print(f"\nBusca inconclusiva. Usando NSU {low} como referência.")
     nsu_com_seguranca = max(1, best_nsu - safety_margin)
     print(f"\nBusca concluída!")
     print(f"  - NSU mais próximo encontrado: {best_nsu}")
     print(f"  - Aplicando margem de segurança de {safety_margin} NSUs para cobrir notas fora de ordem.")
     print(f"  - NSU Inicial sugerido: {nsu_com_seguranca}")
 
-    # Salva no cache para uso futuro
-    if cnpj_label and env_choice:
+    # Salva no cache para uso futuro (apenas se encontrou dados reais)
+    if cnpj_label and env_choice and nsu_encontrado:
         save_nsu_location_cache(cnpj_label, env_choice, start_date, best_nsu)
 
     return nsu_com_seguranca
@@ -906,9 +882,11 @@ def main():
 
     consecutive_after_period = 0
     downloaded_count = 0
+    request_delay = 1.0
 
     while True:
         url = f"{base_url}/DFe/{nsu}"
+        time.sleep(request_delay)
         try:
             logger.info(f"Consultando lote de documentos a partir do NSU {nsu}...")
             status_code, response_text, error_msg = do_download(url)
@@ -1048,8 +1026,9 @@ def main():
                 logger.info(f"\nFim da fila: O NSU {nsu} não foi encontrado (fim dos registros).")
                 break
             elif status_code == 429:
-                logger.warning("Alerta: Bloqueio temporário por limite de requisições (429). Aguardando 10 segundos...")
-                time.sleep(10)
+                request_delay = min(request_delay * 2, 15.0)
+                logger.warning(f"Limite de requisições (429). Aguardando {request_delay:.0f}s e reduzindo ritmo...")
+                time.sleep(request_delay)
             elif error_msg:
                 logger.error(f"Erro ao buscar NSU {nsu}: {error_msg}")
                 nsu += 1
