@@ -174,6 +174,7 @@ if HAS_DANFSE_LIB:
 
 # Agora podemos importar com segurança
 import requests
+import json
 import base64
 import gzip
 import xml.etree.ElementTree as ET
@@ -363,39 +364,6 @@ def extract_cnpj_from_pem(pem_path):
         return None
 
 
-import json
-
-def load_last_nsu(state_key, env_choice):
-    state_file = "nsu_state.json"
-    if not os.path.exists(state_file):
-        return None
-    try:
-        with open(state_file, "r", encoding="utf-8") as f:
-            state = json.load(f)
-            key = f"{state_key}_{env_choice}"
-            return state.get(key)
-    except Exception as e:
-        logger.debug(f"Erro ao carregar nsu_state.json: {e}")
-        return None
-
-def save_last_nsu(state_key, env_choice, last_nsu):
-    state_file = "nsu_state.json"
-    state = {}
-    if os.path.exists(state_file):
-        try:
-            with open(state_file, "r", encoding="utf-8") as f:
-                state = json.load(f)
-        except Exception:
-            state = {}
-    key = f"{state_key}_{env_choice}"
-    state[key] = last_nsu
-    try:
-        with open(state_file, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=4, ensure_ascii=False)
-        logger.info(f"Último NSU ({last_nsu}) salvo com sucesso em '{state_file}'.")
-    except Exception as e:
-        logger.warning(f"Não foi possível salvar o estado do NSU em '{state_file}': {e}")
-
 
 
 def main():
@@ -445,7 +413,6 @@ def main():
             print("Erro: Certificado sem thumbprint.")
             return 1
         cnpj = extract_cnpj_from_subject(a3_cert_info.get('subject', ''))
-        state_key = f"A3_{a3_thumbprint}"
     else:
         cert_type = "PEM"
         pem_dir = "./certificados"
@@ -475,7 +442,6 @@ def main():
                 return 1
 
         cnpj = extract_cnpj_from_pem(pem_path)
-        state_key = os.path.basename(pem_path)
 
     # CNPJ
     cnpj_label = None
@@ -749,17 +715,12 @@ def main():
     logger.info("-" * 60)
     logger.info(f"Processo finalizado. Total de notas baixadas no período: {downloaded_count}")
 
-    last_processed_nsu = nsu - 1
-    logger.info(f"Último NSU processado: {last_processed_nsu}")
-
-    save_last_nsu(state_key, env_choice, last_processed_nsu)
-
     # Salva cache NSU->data para localização futura sem busca
     if first_nsu_in_period and cnpj_label and env_choice:
         save_nsu_location_cache(cnpj_label, env_choice, start_date, first_nsu_in_period)
         logger.info(f"Cache de data salvo: {start_date.strftime('%d/%m/%Y')} → NSU {first_nsu_in_period}")
 
-    logger.info("Estado do NSU atualizado. Pronto para o próximo download!")
+    logger.info("Pronto para o próximo download!")
     return 0
 
 if __name__ == "__main__":

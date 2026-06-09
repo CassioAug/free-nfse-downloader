@@ -17,8 +17,8 @@ venv/
 env/
 .env
 
-# Estado local do coletor (NSU)
-nsu_state.json
+# Logs de execução
+*.log
 
 # Cache de localização automática de NSU
 cache_nsu/
