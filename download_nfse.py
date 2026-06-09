@@ -7,10 +7,7 @@ import logging
 import time
 from datetime import datetime, date, timedelta
 from organize_nfse import get_service_type
-from nsu_index import (
-    locate_nsu_by_date, NSU_INDEX_STEP, save_nsu_index_entry,
-    save_nsu_location_cache
-)
+from nsu_index import locate_nsu_by_date, save_nsu_index_entry, save_nsu_location_cache
 
 # Inicializa o logger global
 logger = logging.getLogger("free_nfse_downloader")
@@ -409,129 +406,62 @@ def main():
     a3_thumbprint = None
     a3_cert_info = None
 
-    print("Selecione o tipo de certificado:")
-    print("1 - Arquivo PEM (certificado em arquivo .pem)")
-    if HAS_CERT_HANDLER:
-        print("2 - Token A3 (GD Burti / SafeSign - USB)")
+    # --- Certificado: sempre PEM de ./certificados/ ---
+    cert_type = "PEM"
+    pem_dir = "./certificados"
 
-    default_cert_option = "1"
-    if HAS_CERT_HANDLER:
-        default_cert_option = input(f"Opção [Padrão: {default_cert_option}]: ").strip() or default_cert_option
+    if not os.path.isdir(pem_dir):
+        print(f"Erro: Diretório '{pem_dir}' não encontrado.")
+        return 1
+
+    arquivos = [f for f in os.listdir(pem_dir) if f.lower().endswith('.pem')]
+    if not arquivos:
+        print(f"Erro: Nenhum arquivo .pem encontrado em '{pem_dir}'.")
+        return 1
+    elif len(arquivos) == 1:
+        pem_path = os.path.join(pem_dir, arquivos[0])
+        print(f"Certificado: {arquivos[0]}")
     else:
-        input(f"Opção [Padrão: {default_cert_option}]: ").strip() or default_cert_option
-
-    if HAS_CERT_HANDLER and default_cert_option == "2":
-        cert_type = "A3"
-        print("\n[Modo: Token A3 - Windows Certificate Store]")
-
-        token_certs = cert_handler.list_token_certs()
-        if not token_certs:
-            print("Erro: Nenhum certificado de token (A3) encontrado.")
-            print("Verifique se:")
-            print("  1. O token USB está conectado")
-            print("  2. O driver SafeSign está instalado")
-            print("  3. O certificado foi importado para o Windows Certificate Store")
+        print(f"\nCertificados encontrados em {pem_dir}/:")
+        for idx, arq in enumerate(arquivos, 1):
+            print(f"  {idx} - {arq}")
+        try:
+            opcao = input(f"Selecione (1-{len(arquivos)}): ").strip()
+            if not opcao.isdigit() or not (1 <= int(opcao) <= len(arquivos)):
+                print("Opção inválida.")
+                return 1
+            pem_path = os.path.join(pem_dir, arquivos[int(opcao) - 1])
+        except (KeyboardInterrupt, SystemExit):
+            print("\nOperação cancelada.")
             return 1
 
-        print(f"\nEncontrado(s) {len(token_certs)} certificado(s) de token:\n")
-        for idx, cert in enumerate(token_certs, 1):
-            subject = cert.get('subject', 'Desconhecido')
-            thumbprint = cert.get('thumbprint', 'N/A')
-            notafter = cert.get('notafter', 'N/A')
-            print(f"  {idx} - {subject}")
-            print(f"      Validade: {notafter}")
-            print(f"      Thumbprint: {thumbprint}")
-            print()
+    print(f"\n[Modo: PEM] {pem_path}")
+    cnpj = extract_cnpj_from_pem(pem_path)
 
-        if len(token_certs) == 1:
-            selected_index = 0
-            print(f"Auto-selecionado certificado único: {token_certs[0].get('subject', 'N/A')}")
-        else:
-            try:
-                selected_str = input(f"Selecione o número do certificado (1-{len(token_certs)}): ").strip()
-                if not selected_str.isdigit() or not (1 <= int(selected_str) <= len(token_certs)):
-                    print("Opção inválida.")
-                    return 1
-                selected_index = int(selected_str) - 1
-            except (KeyboardInterrupt, SystemExit):
-                print("\nOperação cancelada.")
-                return 1
+    state_key = os.path.basename(pem_path)
 
-        a3_cert_info = token_certs[selected_index]
-        a3_thumbprint = a3_cert_info.get('thumbprint')
-        if not a3_thumbprint:
-            print("Erro: Certificado selecionado não possui thumbprint.")
-            return 1
-
-        print(f"Certificado selecionado: {a3_cert_info.get('subject', 'N/A')}")
-        print(f"Thumbprint: {a3_thumbprint}")
-
-        # Extrai CNPJ do subject do certificado A3
-        cnpj = extract_cnpj_from_subject(a3_cert_info.get('subject', ''))
-
-    else:
-        cert_type = "PEM"
-        print("\n[Modo: Certificado em arquivo PEM]")
-        pem_path = input("Caminho para o certificado PEM (gerado pelo conversor) [Padrão: ./certificados]: ").strip().strip("'\"")
-        if not pem_path:
-            pem_path = "./certificados"
-
-        if not os.path.exists(pem_path):
-            print(f"Erro: O arquivo ou diretório do certificado '{pem_path}' não foi encontrado.")
-            return 1
-
-        if os.path.isdir(pem_path):
-            print(f"\nO caminho informado é um diretório. Procurando certificados PEM (.pem) em '{pem_path}'...")
-            arquivos = [f for f in os.listdir(pem_path) if f.lower().endswith('.pem')]
-            if not arquivos:
-                print("Nenhum arquivo .pem foi encontrado neste diretório.")
-                return 1
-            print("Certificados PEM encontrados:")
-            for idx, arq in enumerate(arquivos, 1):
-                print(f"  {idx} - {arq}")
-            try:
-                opcao = input(f"Selecione o número do certificado (1-{len(arquivos)}): ").strip()
-                if not opcao.isdigit() or not (1 <= int(opcao) <= len(arquivos)):
-                    print("Opção inválida.")
-                    return 1
-                pem_path = os.path.join(pem_path, arquivos[int(opcao) - 1])
-                print(f"Arquivo selecionado: {pem_path}")
-            except (KeyboardInterrupt, SystemExit):
-                print("\nOperação cancelada.")
-                return 1
-
-        # Extrai CNPJ do certificado PEM
-        cnpj = extract_cnpj_from_pem(pem_path)
-
-    if cert_type == "PEM":
-        state_key = os.path.basename(pem_path)
-    else:
-        state_key = f"A3_{a3_thumbprint}"
-
-    # Aplica subpasta com CNPJ no diretório de saída
+    # CNPJ da empresa
     cnpj_label = None
     if cnpj:
-        cnpj_label = re.sub(r'\D', '', cnpj)  # garante só dígitos
-        print(f"\nCNPJ detectado no certificado: {cnpj_label}")
+        cnpj_label = re.sub(r'\D', '', cnpj)
+        print(f"CNPJ: {cnpj_label}")
     else:
         print("\nAviso: Não foi possível extrair o CNPJ do certificado.")
         resp = input("Deseja digitar o CNPJ manualmente? (s/N): ").strip().lower()
         if resp == 's':
-            cnpj_manual = input("CNPJ (apenas números, 14 dígitos): ").strip()
+            cnpj_manual = input("CNPJ (14 dígitos): ").strip()
             cnpj_manual = re.sub(r'\D', '', cnpj_manual)
             if len(cnpj_manual) == 14:
                 cnpj_label = cnpj_manual
             else:
-                print("CNPJ inválido. As notas serão salvas na raiz da pasta de saída.")
+                print("CNPJ inválido.")
         else:
-            print("As notas serão salvas na raiz da pasta de saída.")
-        
-    # 2. Escolha do Ambiente
-    print("\nEscolha o Ambiente:")
-    print("1 - Produção (adn.nfse.gov.br)")
-    print("2 - Homologação / Produção Restrita (adn.producaorestrita.nfse.gov.br)")
-    env_choice = input("Opção [Padrão: 1]: ").strip() or "1"
-    base_url = API_URLS.get(env_choice, API_URLS["1"])
+            print("Notas salvas na raiz da pasta de saída.")
+
+    # Ambiente: sempre produção
+    env_choice = "1"
+    base_url = API_URLS["1"]
+    print(f"Ambiente: Produção ({base_url})")
 
     # 3. Período das Notas
     print("\nInforme o período desejado (Formato: DD/MM/YYYY):")
@@ -680,8 +610,8 @@ def main():
                             f.write(xml_content)
                         continue
                         
-                    # Alimenta o índice NSU (a cada 100)
-                    if cnpj_label and env_choice and nsu_item % NSU_INDEX_STEP < 3:
+                    # Alimenta o índice NSU com todos os NSUs encontrados
+                    if cnpj_label and env_choice:
                         save_nsu_index_entry(cnpj_label, env_choice, nsu_item, dt)
 
                     # Regras de Filtro por Data
