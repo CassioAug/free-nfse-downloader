@@ -259,6 +259,12 @@ def get_service_type(xml_str, cnpj_label):
     o CNPJ da empresa (do certificado) com o CNPJ do emitente/prestador
     e do tomador no XML.
     
+    Estratégia:
+    1. Procura CNPJ dentro de tags-filhas de <emit>, <prest> (prestador)
+       e <toma>, <tomador> (tomador)
+    2. Se não encontrar, varre o XML inteiro por tags <CNPJ> e tenta
+       inferir pela ordem (primeiro CNPJ é do prestador, segundo é tomador)
+    
     Retorna 'prestado', 'tomado' ou None (indeterminado).
     """
     if not cnpj_label or not xml_str:
@@ -266,40 +272,69 @@ def get_service_type(xml_str, cnpj_label):
     
     try:
         root = ET.fromstring(xml_str)
-        cnpjs_emit = []   # CNPJs do prestador/emitente
-        cnpjs_toma = []   # CNPJs do tomador
+        cnpjs_emit = []
+        cnpjs_toma = []
         
         for el in root.iter():
             tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
             
-            # Procura CNPJ dentro de tags de prestador (emit, prest)
-            if tag_local.lower() in ['emit', 'prest']:
+            # Tags de prestador: emit, prest
+            if tag_local.lower() in ('emit', 'prest'):
                 for child in el.iter():
                     child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
                     if child_tag.upper() == 'CNPJ' and child.text:
                         cnpjs_emit.append(re.sub(r'\D', '', child.text))
             
-            # Procura CNPJ dentro de tags de tomador (toma, tomador)
-            if tag_local.lower() in ['toma', 'tomador']:
+            # Tags de tomador: toma, tomador
+            if tag_local.lower() in ('toma', 'tomador'):
                 for child in el.iter():
                     child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
                     if child_tag.upper() == 'CNPJ' and child.text:
                         cnpjs_toma.append(re.sub(r'\D', '', child.text))
         
-        # Se o CNPJ da empresa está nos prestadores => serviço prestado
+        # Se CNPJ encontrado em prestador
         if cnpj_label in cnpjs_emit:
+            logger.info(f"    -> CNPJ {cnpj_label} é PRESTADOR (encontrado em emit/prest)")
             return 'prestado'
         
-        # Se o CNPJ da empresa está nos tomadores => serviço tomado
+        # Se CNPJ encontrado em tomador
         if cnpj_label in cnpjs_toma:
+            logger.info(f"    -> CNPJ {cnpj_label} é TOMADOR (encontrado em toma)")
             return 'tomado'
         
-        # Se nenhum dos casos, registra aviso
-        logger.warning(f"Não foi possível classificar serviço (emit={cnpjs_emit}, toma={cnpjs_toma})")
+        # --- FALLBACK: varre o XML inteiro por tags CNPJ ---
+        # Útil se o XML usar uma estrutura de tags diferente
+        todos_cnpjs = []
+        for el in root.iter():
+            tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+            if tag_local.upper() == 'CNPJ' and el.text:
+                todos_cnpjs.append(re.sub(r'\D', '', el.text))
+        
+        # Remove duplicatas preservando ordem
+        vistos = set()
+        cnpj_ordenados = []
+        for c in todos_cnpjs:
+            if c not in vistos:
+                vistos.add(c)
+                cnpj_ordenados.append(c)
+        
+        if cnpj_label in cnpj_ordenados:
+            idx = cnpj_ordenados.index(cnpj_label)
+            if idx == 0:
+                logger.info(f"    -> CNPJ {cnpj_label} é o primeiro CNPJ do XML → PRESTADOR (fallback)")
+                return 'prestado'
+            elif idx >= 1:
+                logger.info(f"    -> CNPJ {cnpj_label} é o {idx+1}º CNPJ do XML → TOMADOR (fallback)")
+                return 'tomado'
+        
+        logger.warning(f"Não foi possível classificar serviço. "
+                       f"cnpj_label={cnpj_label}, "
+                       f"emit={cnpjs_emit}, toma={cnpjs_toma}, "
+                       f"todos_CNPJs={cnpj_ordenados}")
         return None
         
     except Exception as e:
-        logger.debug(f"Erro ao classificar tipo de serviço: {e}")
+        logger.warning(f"Erro ao classificar tipo de serviço: {e}")
         return None
 
 def extract_cnpj_from_subject(subject_str):
