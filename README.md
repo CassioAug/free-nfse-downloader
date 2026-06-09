@@ -55,7 +55,15 @@ git clone https://github.com/CassioAug/free-nfse-downloader.git
 cd free-nfse-downloader
 ```
 
-### Passo 2: Converter o Certificado (apenas A1/PEM)
+### Passo 2: Instalar as dependencias
+
+```bash
+pip install -r requirements.txt
+```
+
+*Se preferir, o script `download_nfse.py` tambem instala as dependencias basicas automaticamente na primeira execucao.*
+
+### Passo 3: Converter o Certificado (apenas A1/PEM)
 
 Coloque o seu arquivo `.pfx` ou `.p12` na pasta `./certificados`. Para rodar o conversor:
 
@@ -70,7 +78,7 @@ O script e interativo:
 
 *Para token A3, pule esta etapa - o certificado ja esta no Windows Certificate Store.*
 
-### Passo 3: Executar o Coletor de Notas
+### Passo 4: Executar o Coletor de Notas
 
 ```bash
 python download_nfse.py
@@ -99,7 +107,7 @@ pip install playwright
 playwright install chromium
 ```
 
-### Passo 4: Reorganizar XMLs ja baixados (Opcional)
+### Passo 5: Reorganizar XMLs ja baixados (Opcional)
 
 Se voce ja possui XMLs baixados e quer classificar/separar por tipo de servico sem baixar novamente:
 
@@ -107,7 +115,7 @@ Se voce ja possui XMLs baixados e quer classificar/separar por tipo de servico s
 python organize_nfse.py --dir ./notas_fiscais/SEU_CNPJ --cnpj SEU_CNPJ
 ```
 
-### Passo 5: Converter XMLs Locais para PDF (Opcional)
+### Passo 6: Converter XMLs Locais para PDF (Opcional)
 
 ```bash
 python xml_to_pdf.py [caminho_entrada] [opcoes]
