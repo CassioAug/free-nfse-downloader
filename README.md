@@ -177,4 +177,4 @@ O projeto ja conta com um arquivo `.gitignore` configurado. **Nunca remova as re
 
 ## Licenca
 
-Este projeto esta licenciado sob a licenca MIT. Consulte o arquivo [LICENSE](LICENSE) para obter mais detalhes.
+Este projeto e software livre licenciado sob a **GNU General Public License v3.0**. Consulte o arquivo [LICENSE](LICENSE) para obter mais detalhes.
