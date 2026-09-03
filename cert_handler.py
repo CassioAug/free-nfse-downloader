@@ -503,11 +503,13 @@ class PlaywrightA3Client:
         print("\n[Playwright] Inicializando Chrome para conexão segura com token A3...")
         self.playwright = sync_playwright().start()
         
-        # Lançamos o Google Chrome instalado no sistema (channel="chrome")
-        # em modo headful (headless=False) para mostrar o PIN popup
+        # TLS 1.2 forçado: TLS 1.3 exige assinatura RSASSA-PSS no client cert,
+        # que tokens A3 com driver SafeSign 3.x não suportam (causa do
+        # ERR_SSL_CLIENT_AUTH_SIGNATURE_FAILED). TLS 1.2 usa PKCS#1 v1.5.
         self.browser = self.playwright.chromium.launch(
             channel="chrome",
-            headless=False
+            headless=False,
+            args=["--ssl-version-max=tls1.2"]
         )
         self.context = self.browser.new_context(
             ignore_https_errors=True

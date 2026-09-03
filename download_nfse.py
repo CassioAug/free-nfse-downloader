@@ -535,12 +535,9 @@ def main():
             return response.status_code, response.text, None
         else:
             status_code, text, error = playwright_client.download_url(url)
-            if status_code == 200:
-                return 200, text, None
-            elif status_code > 0:
-                return status_code, text, None
-            else:
-                return 0, None, error or "Erro de rede no Chrome"
+            if status_code > 0:
+                return status_code, text or "", None
+            return 0, None, error or "Erro de rede no Chrome"
 
     if cert_type != "PEM" and playwright_client:
         atexit.register(playwright_client.close)
