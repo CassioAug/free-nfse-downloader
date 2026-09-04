@@ -2,10 +2,10 @@
 *.pem
 *.pfx
 *.p12
-certificados/
+certificados/*.*
 
 # Ignorar downloads de notas fiscais, PDFs e arquivos de log
-notas_fiscais/
+notas_fiscais/*.*
 
 # Arquivos temporários e de ambiente Python (Recomendado)
 __pycache__/

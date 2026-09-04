@@ -20,6 +20,7 @@ import logging
 import time
 import atexit
 from datetime import datetime, date, timedelta
+import setup_dirs
 from organize_nfse import get_service_type
 from nsu_index import locate_nsu_by_date, save_nsu_index_entry, save_nsu_location_cache
 
@@ -428,10 +429,9 @@ def main():
         cnpj = extract_cnpj_from_subject(a3_cert_info.get('subject', ''))
     else:
         cert_type = "PEM"
-        pem_dir = "./certificados"
+        pem_dir = setup_dirs.CERT_DIR if os.path.isdir(setup_dirs.CERT_DIR) else "./certificados"
         if not os.path.isdir(pem_dir):
-            print(f"Erro: Diretório '{pem_dir}' não encontrado.")
-            return 1
+            os.makedirs(pem_dir, exist_ok=True)
 
         arquivos = [f for f in os.listdir(pem_dir) if f.lower().endswith('.pem')]
         if not arquivos:
@@ -491,7 +491,7 @@ def main():
         return 1
 
     # 4. Diretório de Saída
-    output_dir = "./notas_fiscais"
+    output_dir = setup_dirs.NOTAS_DIR if os.path.isdir(setup_dirs.NOTAS_DIR) else "./notas_fiscais"
     if cnpj_label:
         output_dir = os.path.join(output_dir, cnpj_label)
     print(f"\nDiretório de saída: {output_dir}")

@@ -22,6 +22,8 @@ from glob import glob
 # Adiciona o diretório atual ao path para garantir importação
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+import setup_dirs
+
 try:
     from download_nfse import CustomDanfse, HAS_DANFSE_LIB
 except ImportError as e:
