@@ -55,13 +55,28 @@ git clone https://github.com/CassioAug/free-nfse-downloader.git
 cd free-nfse-downloader
 ```
 
-### Passo 2: Instalar as dependencias
+### Modo Rápido (Interface Gráfica - Recomendado para usuários não técnicos)
+
+Para quem prefere uma experiência visual sem digitar comandos no terminal:
+
+1. Dê dois cliques em **`instalar_dependencias.bat`** (ele criará um ambiente virtual isolado `.venv` e instalará tudo automaticamente).
+2. Dê dois cliques em **`iniciar_gui.bat`** para abrir a interface gráfica.
+
+*(No Linux/macOS, utilize `./instalar_dependencias.sh` e `./iniciar_gui.sh`)*
+
+---
+
+### Passo 2: Instalar as dependencias (Via Linha de Comando)
 
 ```bash
+# Recomendado: criar e ativar ambiente virtual
+python -m venv .venv
+.venv\Scripts\activate   # No Windows (ou source .venv/bin/activate no Linux/macOS)
+
 pip install -r requirements.txt
 ```
 
-*Se preferir, o script `download_nfse.py` tambem instala as dependencias basicas automaticamente na primeira execucao.*
+*Ou simplesmente execute `instalar_dependencias.bat` para fazer isso automaticamente em um `.venv` isolado.*
 
 ### Passo 3: Converter o Certificado (apenas A1/PEM)
 
