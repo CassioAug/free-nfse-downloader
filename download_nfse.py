@@ -202,7 +202,7 @@ API_URLS = {
 def parse_date(date_str):
     try:
         return datetime.strptime(date_str.strip(), "%d/%m/%Y").date()
-    except ValueError:
+    except (ValueError, AttributeError):
         return None
 
 def extract_xml(data):
