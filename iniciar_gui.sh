@@ -28,5 +28,12 @@ if [ -z "$VENV_PYTHON" ]; then
     fi
 fi
 
+# Configurar bibliotecas locais do Tk (isoladas no .venv), se existirem
+SCRIPT_DIR="$(pwd)"
+if [ -f "$SCRIPT_DIR/.venv/lib/libtk8.6.so" ]; then
+    export LD_LIBRARY_PATH="$SCRIPT_DIR/.venv/lib:${LD_LIBRARY_PATH:-}"
+    export TK_LIBRARY="$SCRIPT_DIR/.venv/lib/tk8.6"
+fi
+
 echo "Iniciando a interface gráfica..."
 "$VENV_PYTHON" gui.py

@@ -37,11 +37,16 @@ Ao final do download, os arquivos sao automaticamente organizados em:
 ## Pre-requisitos
 
 - **Python 3.8+** instalado
-- Certificado Digital **A1 (e-CNPJ em arquivo .pfx/.p12)** ou **A3 (token USB)** da empresa
+- **No Linux (para a interface gráfica):** suporte ao Tkinter da distribuição:
+  - *Ubuntu / Debian / Mint / Pop!_OS:* `sudo apt install python3-tk python3-venv`
+  - *Arch Linux / CachyOS / Manjaro:* `sudo pacman -S tk`
+  - *Fedora / RHEL:* `sudo dnf install python3-tkinter`
+- Certificado Digital **A1 (e-CNPJ em arquivo .pfx/.p12)** ou **A3 (token USB, apenas Windows)** da empresa
 - Dependencias do projeto (instaladas automaticamente na primeira execucao do script):
   - `requests` (para chamadas HTTP com certificado A1/PEM)
   - `cryptography` (para manuseio seguro do certificado)
   - `brazilfiscalreport[danfse]` (opcional, para renderizar o PDF da DANFSE localmente)
+  - `customtkinter` (para interface gráfica moderna)
   - `playwright` (apenas para token A3 no Windows - Chrome headful)
 
 ---

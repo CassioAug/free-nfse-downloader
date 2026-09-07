@@ -16,6 +16,20 @@
 
 import os
 import sys
+# Suporte a Tk embutido no .venv (Linux) se o sistema não possuir tk instalado
+if sys.platform.startswith("linux") and "TK_LIBRARY" not in os.environ:
+    _venv_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "lib")
+    if os.path.exists(os.path.join(_venv_lib, "libtk8.6.so")):
+        try:
+            import _tkinter  # noqa: F401
+        except ImportError:
+            if "_TK_LOCAL_REEXEC" not in os.environ and sys.argv and sys.argv[0] != "-c":
+                _env = os.environ.copy()
+                _env["_TK_LOCAL_REEXEC"] = "1"
+                _env["LD_LIBRARY_PATH"] = f"{_venv_lib}:{_env.get('LD_LIBRARY_PATH', '')}"
+                _env["TK_LIBRARY"] = os.path.join(_venv_lib, "tk8.6")
+                os.execve(sys.executable, [sys.executable] + sys.argv, _env)
+
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -171,12 +185,12 @@ class App(ctk.CTk):
 
         # Start Date
         ctk.CTkLabel(frame, text="Data Inicial (DD/MM/YYYY):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
-        self.start_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 01/01/2026")
+        self.start_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 01/01/2026", width=180)
         self.start_date_entry.grid(row=3, column=1, padx=10, pady=10, sticky="w")
 
         # End Date
         ctk.CTkLabel(frame, text="Data Final (DD/MM/YYYY):").grid(row=4, column=0, padx=10, pady=10, sticky="w")
-        self.end_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 31/01/2026 (Deixe vazio para hoje)")
+        self.end_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 31/01/2026 (Deixe vazio para hoje)", width=280)
         self.end_date_entry.grid(row=4, column=1, padx=10, pady=10, sticky="w")
 
         # Start Button
