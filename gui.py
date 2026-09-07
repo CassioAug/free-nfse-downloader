@@ -36,6 +36,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 import subprocess
 import shutil
+from version import __version__
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -44,7 +45,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Free NFS-e Downloader")
+        self.title(f"Free NFS-e Downloader v{__version__}")
         self.geometry("900x700")
 
         self.grid_columnconfigure(0, weight=1)

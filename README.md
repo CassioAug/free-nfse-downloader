@@ -1,4 +1,8 @@
-# free-nfse-downloader
+# free-nfse-downloader (v2.0.0)
+
+[![CI](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/CassioAug/free-nfse-downloader?color=blue)](https://github.com/CassioAug/free-nfse-downloader/releases)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 Este é um projeto em Python para automação, sincronização e download de **Notas Fiscais de Serviços Eletrônicas (NFS-e)** de padrão nacional diretamente da API do **Ambiente de Dados Nacional (ADN)**.
 

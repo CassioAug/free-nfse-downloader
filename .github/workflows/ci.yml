@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test (Py ${{ matrix.python-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax & Bytecode Compilation Check
+        run: python -m compileall -q .
+
+      - name: Validate Shell Scripts (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash -n *.sh
+
+      - name: Sanity Import Check (Core Modules)
+        run: |
+          python -c "import cert_handler, convert_pfx, download_nfse, nsu_index, organize_nfse, xml_to_pdf, setup_dirs, version"
+
+      - name: Sanity Import Check (GUI with Virtual Display on Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb python3-tk tk
+          xvfb-run python -c "import gui"
+
+      - name: Sanity Import Check (GUI on Windows)
+        if: runner.os == 'Windows'
+        run: |
+          python -c "import gui"
