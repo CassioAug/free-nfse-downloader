@@ -29,6 +29,8 @@ import xml.etree.ElementTree as ET
 
 logger = logging.getLogger("free_nfse_downloader")
 
+NON_DIGITS = re.compile(r'\D')
+
 
 def get_service_type(xml_str, cnpj_label):
     """
@@ -58,13 +60,13 @@ def get_service_type(xml_str, cnpj_label):
                 for child in el.iter():
                     child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
                     if child_tag.upper() == 'CNPJ' and child.text:
-                        cnpjs_emit.append(re.sub(r'\D', '', child.text))
+                        cnpjs_emit.append(NON_DIGITS.sub('', child.text))
 
             if tag_local.lower() in ('toma', 'tomador', 'tomadorservico'):
                 for child in el.iter():
                     child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
                     if child_tag.upper() == 'CNPJ' and child.text:
-                        cnpjs_toma.append(re.sub(r'\D', '', child.text))
+                        cnpjs_toma.append(NON_DIGITS.sub('', child.text))
 
         if cnpj_label in cnpjs_emit:
             logger.info(f"    -> CNPJ {cnpj_label} é PRESTADOR (encontrado em emit/prest)")
@@ -79,7 +81,7 @@ def get_service_type(xml_str, cnpj_label):
         for el in root.iter():
             tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
             if tag_local.upper() == 'CNPJ' and el.text:
-                todos_cnpjs.append(re.sub(r'\D', '', el.text))
+                todos_cnpjs.append(NON_DIGITS.sub('', el.text))
 
         vistos = set()
         cnpj_ordenados = []
@@ -190,7 +192,7 @@ def main():
 
     args = parser.parse_args()
 
-    cnpj = re.sub(r'\D', '', args.cnpj)
+    cnpj = NON_DIGITS.sub('', args.cnpj)
     if len(cnpj) != 14:
         print("Erro: CNPJ deve ter 14 dígitos.")
         return 1
