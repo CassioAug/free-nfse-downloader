@@ -246,7 +246,7 @@ def get_emission_date(xml_str):
             if tag_local.lower() in ['dhemi', 'dataemissao', 'dtemissao', 'dtemi']:
                 elem = el
                 break
-        if elem is not None and elem.text:
+        if elem is not None and elem.text and elem.text.strip():
             date_str = elem.text.strip()
             match = re.match(r'^(\d{4})-(\d{2})-(\d{2})', date_str)
             if match:
@@ -265,7 +265,7 @@ def get_nfse_number(xml_str):
             if tag_local.lower() in ['nnfse', 'numeronfse', 'numero']:
                 elem = el
                 break
-        if elem is not None and elem.text:
+        if elem is not None and elem.text and elem.text.strip():
             return elem.text.strip()
     except Exception as e:
         logger.debug(f"Erro ao parsear número do XML: {e}")
