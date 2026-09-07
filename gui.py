@@ -36,6 +36,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 import subprocess
 import shutil
+import webbrowser
 from version import __version__
 
 ctk.set_appearance_mode("System")
@@ -58,11 +59,13 @@ class App(ctk.CTk):
         self.tab_convert_pfx = self.tabview.add("Converter PFX/P12")
         self.tab_organize = self.tabview.add("Organizar NFS-e")
         self.tab_xml_pdf = self.tabview.add("XML para PDF")
+        self.tab_about = self.tabview.add("Sobre")
 
         self.setup_download_tab()
         self.setup_convert_pfx_tab()
         self.setup_organize_tab()
         self.setup_xml_pdf_tab()
+        self.setup_about_tab()
 
         self.log_box = ctk.CTkTextbox(self, height=200)
         self.log_box.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="ew")
@@ -441,6 +444,58 @@ class App(ctk.CTk):
 
         self.log_box.delete("0.0", "end")
         self.run_command(cmd, "Conversão Finalizada.", "Erro na Conversão.")
+
+    def setup_about_tab(self):
+        frame = ctk.CTkFrame(self.tab_about)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        container = ctk.CTkFrame(frame, fg_color="transparent")
+        container.place(relx=0.5, rely=0.5, anchor="center")
+
+        lbl_title = ctk.CTkLabel(
+            container,
+            text="Free NFS-e Downloader",
+            font=ctk.CTkFont(size=22, weight="bold")
+        )
+        lbl_title.pack(pady=(0, 5))
+
+        lbl_version = ctk.CTkLabel(
+            container,
+            text=f"Versão {__version__}",
+            font=ctk.CTkFont(size=14, slant="italic")
+        )
+        lbl_version.pack(pady=(0, 20))
+
+        lbl_desc = ctk.CTkLabel(
+            container,
+            text="Automação, sincronização e download em lote de Notas Fiscais de Serviços\nEletrônicas (NFS-e) diretamente da API do Ambiente de Dados Nacional.",
+            justify="center",
+            font=ctk.CTkFont(size=13)
+        )
+        lbl_desc.pack(pady=(0, 25))
+
+        lbl_author = ctk.CTkLabel(
+            container,
+            text="Desenvolvido por: Cássio Augusto Couto Soares (CassioAug)",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        lbl_author.pack(pady=(0, 15))
+
+        btn_github = ctk.CTkButton(
+            container,
+            text="🌐 Abrir Repositório no GitHub",
+            command=lambda: webbrowser.open("https://github.com/CassioAug/free-nfse-downloader"),
+            width=260,
+            height=36
+        )
+        btn_github.pack(pady=(0, 25))
+
+        lbl_license = ctk.CTkLabel(
+            container,
+            text="Licença: GNU General Public License v3.0 (GPLv3)",
+            font=ctk.CTkFont(size=12, slant="italic")
+        )
+        lbl_license.pack(pady=(0, 5))
 
 
 if __name__ == "__main__":
