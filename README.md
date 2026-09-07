@@ -1,204 +1,110 @@
-# free-nfse-downloader (v2.0.0)
+# Free NFS-e Downloader (v2.0.0)
 
 [![CI](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CassioAug/free-nfse-downloader?color=blue)](https://github.com/CassioAug/free-nfse-downloader/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Este é um projeto em Python para automação, sincronização e download de **Notas Fiscais de Serviços Eletrônicas (NFS-e)** de padrão nacional diretamente da API do **Ambiente de Dados Nacional (ADN)**.
+O **Free NFS-e Downloader** é uma ferramenta gratuita e de código aberto para sincronização e download em lote de **Notas Fiscais de Serviços Eletrônicas (NFS-e)** de padrão nacional diretamente da Receita Federal (Ambiente de Dados Nacional - ADN).
 
-O sistema utiliza autenticação mútua via **mTLS** com o certificado digital da empresa (e-CNPJ), permitindo realizar downloads em lote de arquivos **XML** e gerar a **DANFSE (PDF)** de forma totalmente automatizada, **sem a necessidade de digitar captchas**.
-
----
-
-## Como Funciona o Sistema
-
-O processo é composto por três fluxos principais:
-
-```
-[Certificado .pfx/.p12] -> convert_pfx.py -> [Certificado .pem]
-                                                |
-                                                v
-[Periodo / NSU Automatico] -> download_nfse.py -> [XMLs + DANFSE PDF]
-                                                  organizados em
-                                             prestados/ e tomados/
-
-[XMLs locais ou em lote] -> xml_to_pdf.py -> [DANFSE PDF (Conversao Manual)]
-```
-
-1. **Conversao do Certificado:** O script `convert_pfx.py` extrai a chave privada (desprotegida) e a cadeia de certificados do arquivo original da sua empresa (`.pfx` ou `.p12`) e gera um arquivo consolidado em `.pem` exigido pela biblioteca HTTP do Python. Necessario apenas para certificados A1 (arquivo). Para tokens A3, o certificado ja esta no sistema.
-2. **Download das Notas:** O script `download_nfse.py` consome a API do governo utilizando o certificado digital para autenticacao de rede (mTLS). As notas sao baixadas em lotes sequenciais de ate 50 documentos controlados por **NSU (Numero Sequencial Unico)**, filtradas pelo periodo escolhido e salvas localmente em subpastas `prestados/` e `tomados/`.
-3. **Conversao Manual de XML para PDF:** O script `xml_to_pdf.py` permite converter arquivos XML ja baixados localmente para PDFs (DANFSE) a qualquer momento de forma avulsa ou em lote, sem precisar consultar a API do governo novamente.
-
-### Organizacao por Tipo de Servico
-
-Ao final do download, os arquivos sao automaticamente organizados em:
-- **`prestados/`**: Notas em que sua empresa e o prestador do servico
-- **`tomados/`**: Notas em que sua empresa e o tomador do servico
-- **`sem_data/`**: XMLs de eventos sem data de emissao (cancelamentos, cartas de correcao, etc.)
+Com ele, você baixa os arquivos **XML** e gera os **PDFs (DANFSE)** automaticamente, **sem digitar captchas e sem pagar mensalidades**.
 
 ---
 
-## Pre-requisitos
+## 🖥️ Interface do Aplicativo
 
-- **Python 3.8+** instalado
-- **No Linux (para a interface gráfica):** suporte ao Tkinter da distribuição:
-  - *Ubuntu / Debian / Mint / Pop!_OS:* `sudo apt install python3-tk python3-venv`
-  - *Arch Linux / CachyOS / Manjaro:* `sudo pacman -S tk`
-  - *Fedora / RHEL:* `sudo dnf install python3-tkinter`
-- Certificado Digital **A1 (e-CNPJ em arquivo .pfx/.p12)** ou **A3 (token USB, apenas Windows)** da empresa
-- Dependencias do projeto (instaladas automaticamente na primeira execucao do script):
-  - `requests` (para chamadas HTTP com certificado A1/PEM)
-  - `cryptography` (para manuseio seguro do certificado)
-  - `brazilfiscalreport[danfse]` (opcional, para renderizar o PDF da DANFSE localmente)
-  - `customtkinter` (para interface gráfica moderna)
-  - `playwright` (apenas para token A3 no Windows - Chrome headful)
+![Interface Gráfica do Free NFS-e Downloader](docs/images/gui_preview.png)
 
 ---
 
-## Instalacao e Execucao
+## ✨ Principais Recursos
 
-### Passo 1: Obter o codigo do projeto
-
-```bash
-git clone https://github.com/CassioAug/free-nfse-downloader.git
-cd free-nfse-downloader
-```
-
-### Modo Rápido (Interface Gráfica - Recomendado para usuários não técnicos)
-
-Para quem prefere uma experiência visual sem digitar comandos no terminal:
-
-1. Dê dois cliques em **`instalar_dependencias.bat`** (ele criará um ambiente virtual isolado `.venv` e instalará tudo automaticamente).
-2. Dê dois cliques em **`iniciar_gui.bat`** para abrir a interface gráfica.
-
-*(No Linux/macOS, utilize `./instalar_dependencias.sh` e `./iniciar_gui.sh`)*
+- **Interface Gráfica Intuitiva:** Faça tudo com poucos cliques, sem necessidade de digitar comandos no terminal.
+- **Download em Lote com PDFs:** Baixa os arquivos XML oficiais e gera o relatório DANFSE em PDF de cada nota automaticamente.
+- **Organização Inteligente:** Separa automaticamente as notas em pastas de **serviços prestados** e **serviços tomados**.
+- **Busca por Período:** Basta informar a data inicial e final desejada (o sistema localiza as notas automaticamente).
+- **Suporte a Certificados Digitais:** Compatível com certificados **A1 (arquivo .pfx)** e **A3 (token USB)**.
+- **Ferramentas Inclusas:**
+  - Conversor de certificado PFX/P12 para PEM.
+  - Conversor manual de XMLs locais para PDF.
+  - Reorganizador de notas já baixadas.
+- **Privacidade e Segurança Total:** O programa roda **100% no seu computador**. Nenhum certificado, senha ou nota fiscal é enviado para servidores externos ou nuvem.
 
 ---
 
-### Passo 2: Instalar as dependencias (Via Linha de Comando)
+## 🚀 Como Usar (Passo a Passo Rápido)
 
-```bash
-# Recomendado: criar e ativar ambiente virtual
-python -m venv .venv
-.venv\Scripts\activate   # No Windows (ou source .venv/bin/activate no Linux/macOS)
+### 1. Baixar o Aplicativo
 
-pip install -r requirements.txt
-```
-
-*Ou simplesmente execute `instalar_dependencias.bat` para fazer isso automaticamente em um `.venv` isolado.*
-
-### Passo 3: Converter o Certificado (apenas A1/PEM)
-
-Coloque o seu arquivo `.pfx` ou `.p12` na pasta `./certificados`. Para rodar o conversor:
-
-```bash
-python convert_pfx.py
-```
-
-O script e interativo:
-1. Informe o caminho do arquivo `.pfx` ou `.p12` (Enter para listar em `./certificados`).
-2. Digite a senha do certificado.
-3. Defina o nome do arquivo de saida (padrao: `./certificados/`.
-
-*Para token A3, pule esta etapa - o certificado ja esta no Windows Certificate Store.*
-
-### Passo 4: Executar o Coletor de Notas
-
-```bash
-python download_nfse.py
-```
-
-O script e guiado, mas com opcoes simplificadas:
-
-1. **Tipo de certificado:** `1` para certificado A1 (arquivo `.pem`) ou `2` para token A3 (USB).
-2. **Selecao do certificado:** Para A1/PEM, escolha o arquivo na pasta `./certificados`. Para A3, escolha o certificado no Windows Certificate Store.
-3. **CNPJ:** Extraido automaticamente do certificado. Se falhar, e possivel digitar manualmente.
-4. **Periodo:** Informe a data inicial e final do periodo desejado (Formato: `DD/MM/YYYY`).
-
-O NSU inicial e **localizado automaticamente** atraves de um indice em cache e busca binaria. Nao e necessario informa-lo manualmente.
-
-#### Para token A3 (Windows)
-
-Ao selecionar token A3, o script:
-1. Abre o Google Chrome automaticamente (via Playwright)
-2. Exibe o popup do driver SafeSign para insercao do PIN (uma unica vez)
-3. Mantem a sessao TLS ativa no Chrome e faz as requisicoes via `fetch()` interno
-4. Fecha o Chrome ao finalizar
-
-**Requisitos adicionais para A3:**
-```bash
-pip install playwright
-playwright install chromium
-```
-
-### Passo 5: Reorganizar XMLs ja baixados (Opcional)
-
-Se voce ja possui XMLs baixados e quer classificar/separar por tipo de servico sem baixar novamente:
-
-```bash
-python organize_nfse.py --dir ./notas_fiscais/SEU_CNPJ --cnpj SEU_CNPJ
-```
-
-### Passo 6: Converter XMLs Locais para PDF (Opcional)
-
-```bash
-python xml_to_pdf.py [caminho_entrada] [opcoes]
-```
-
-Exemplos:
-- **Converter todos os XMLs pendentes** na pasta padrao (`./notas_fiscais`):
-  ```bash
-  python xml_to_pdf.py
-  ```
-- **Forcar a regeneracao** de todos os PDFs (sobrescrevendo os existentes):
-  ```bash
-  python xml_to_pdf.py -f
-  ```
-- **Converter um unico arquivo XML especifico**:
-  ```bash
-  python xml_to_pdf.py ./notas_fiscais/NFSe_20260605_nsu_369.xml
-  ```
-- **Definir pasta de entrada e pasta de saida personalizadas**:
-  ```bash
-  python xml_to_pdf.py /caminho/origem -o /caminho/destino
-  ```
+Baixe a versão mais recente pronta para uso:
+- Acesse a página de **[Releases](https://github.com/CassioAug/free-nfse-downloader/releases)** e baixe o arquivo `.zip` da versão mais recente, descompactando-o em uma pasta no seu computador.
+- *(Ou, se for desenvolvedor, use `git clone https://github.com/CassioAug/free-nfse-downloader.git`)*
 
 ---
 
-## Fluxo de Busca de NSU
+### 2. Instalação Automática
 
-O sistema utiliza um indice local para evitar requisicoes desnecessarias ao servidor:
+Abra a pasta do projeto e execute o instalador correspondente ao seu sistema operacional:
 
-1. **Cache exato (data->NSU):** Se a data inicial ja foi consultada antes, usa o NSU salvo em cache. Zero requisicoes.
-2. **Indice NSU->data:** Varredura de 100 em 100 (NSU 1, 100, 200...) construida ao longo das execucoes. Faz busca binaria (~7 requisicoes) para encontrar o NSU ideal.
-3. **Extensao automatica:** Se o indice nao cobre a data, o script estende o indice automaticamente e faz a busca.
-4. **Salvamento continuo:** Cada NSU encontrado durante o download e adicionado ao indice para acelerar execucoes futuras.
+- **No Windows:** Dê dois cliques em **`instalar_dependencias.bat`**.
+- **No Linux:** Abra o terminal na pasta e execute **`./instalar_dependencias.sh`**.
 
----
-
-## Logs e Cache
-
-- **`coletor_nfse.log`:** Historico detalhado da execucao.
-- **`cache_nsu/`:** Indice NSU->data e cache data->NSU (persistido entre execucoes).
-- **`nsu_state.json`:** Ultimo NSU processado por chave de certificado.
-- **`./notas_fiscais/{CNPJ}/`:** Diretorio de saida com subpastas `prestados/`, `tomados/`, `sem_data/`.
+> O instalador criará um ambiente isolado (`.venv`) e baixará automaticamente todos os componentes necessários, sem alterar as configurações do seu computador.
 
 ---
 
-## Notas Importantes e Boas Praticas
+### 3. Abrir e Utilizar
 
-### Limite de Requisicoes (Erro 429) e Instabilidades
+Para iniciar a tela do programa:
+- **No Windows:** Dê dois cliques em **`iniciar_gui.bat`**.
+- **No Linux:** Execute **`./iniciar_gui.sh`**.
 
-As APIs da Receita Federal implementam limites severos de requisicoes por minuto (**Rate Limiting**).
-- Caso o script receba um erro `429 (Too Many Requests)`, ele dobra o intervalo entre requisicoes (ate 15s maximo) e retoma automaticamente.
-- Quedas de conexao e timeouts sao normais devido a instabilidade dos servidores governamentais. O script possui tratamento de excecoes com tentativas automaticas.
-
-### Seguranca (Git / GitHub)
-
-O projeto ja conta com um arquivo `.gitignore` configurado. **Nunca remova as regras de ignore**. Elas impedem que os arquivos confidenciais do seu certificado (`.pfx` ou `.pem`), as notas fiscais baixadas, cache e logs sejam enviados para o repositorio.
+#### Baixando suas notas fiscais:
+1. **Se você tem certificado A1 (`.pfx`):**
+   - Caso ainda não tenha o arquivo `.pem`, vá na aba **Converter PFX/P12**, selecione o arquivo do seu certificado, digite a senha e clique em converter.
+   - Na aba **Download NFS-e**, selecione a opção **Arquivo PEM (A1)**.
+2. **Se você tem certificado A3 (Token USB no Windows):**
+   - Conecte seu token na porta USB e selecione a opção **Token USB (A3)**.
+3. **Informe o período:**
+   - Digite a **Data Inicial** (ex: `01/01/2026`) e a **Data Final** (deixe vazio se quiser baixar até hoje).
+4. Clique em **Iniciar Download** e acompanhe o progresso na caixa de mensagens!
 
 ---
 
-## Licenca
+## 📁 Onde Ficam Salvas as Notas?
 
-Este projeto e software livre licenciado sob a **GNU General Public License v3.0**. Consulte o arquivo [LICENSE](LICENSE) para obter mais detalhes.
+As notas fiscais baixadas são salvas automaticamente dentro da pasta do projeto em:
+
+```
+notas_fiscais/
+└── SEU_CNPJ/
+    ├── prestados/   <-- Notas emitidas pela sua empresa (XML e PDF)
+    ├── tomados/     <-- Notas recebidas de fornecedores (XML e PDF)
+    └── sem_data/    <-- Eventos auxiliares (cancelamentos, etc.)
+```
+
+---
+
+## 📋 Pré-requisitos Básicos
+
+- **Python 3.8 ou superior** instalado no computador ([Baixar Python](https://www.python.org/downloads/)).
+  *(No Windows, marque a opção "Add Python to PATH" durante a instalação)*.
+- **No Linux:** Caso seu sistema não tenha o Tkinter instalado, utilize:
+  - *Ubuntu / Debian / Mint:* `sudo apt install python3-tk python3-venv`
+  - *Arch Linux / CachyOS:* `sudo pacman -S tk`
+  - *Fedora:* `sudo dnf install python3-tkinter`
+- **Certificado Digital e-CNPJ** da empresa (A1 em arquivo ou A3 em token).
+
+---
+
+## 📚 Documentação Técnica (Para Desenvolvedores)
+
+Se você deseja automatizar processos via terminal, agendar rotinas de download ou entender a arquitetura da API governamental:
+
+- **[Uso via Linha de Comando (CLI)](docs/cli.md):** Comandos, argumentos e exemplos de execução via terminal.
+- **[Arquitetura e Funcionamento Técnico](docs/arquitetura.md):** Detalhes sobre mTLS, paginação de NSU, cache e tratamento de limites de requisições (Rate Limiting).
+
+---
+
+## ⚖️ Licença
+
+Este projeto é um software livre distribuído sob a licença **GNU General Public License v3.0**. Consulte o arquivo [LICENSE](LICENSE) para mais informações.
