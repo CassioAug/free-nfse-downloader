@@ -201,6 +201,8 @@ if HAS_DANFSE_LIB:
             )
             
             self.y = line_y - 6
+else:
+    CustomDanfse = None
 
 # Agora podemos importar com segurança
 import requests

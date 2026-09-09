@@ -29,10 +29,10 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     except Exception:
         pass
 
-# Diretório base do projeto (onde este script reside)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Diretório base do projeto (raiz do repositório, pai da pasta src)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Pastas padrão do projeto
+# Pastas padrão do projeto na raiz
 CERT_DIR = os.path.join(BASE_DIR, "certificados")
 NOTAS_DIR = os.path.join(BASE_DIR, "notas_fiscais")
 

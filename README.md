@@ -1,4 +1,4 @@
-# Free NFS-e Downloader (v2.1.0)
+# Free NFS-e Downloader (v2.2.0)
 
 [![CI](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CassioAug/free-nfse-downloader?color=blue)](https://github.com/CassioAug/free-nfse-downloader/releases)

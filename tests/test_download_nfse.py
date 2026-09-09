@@ -3,8 +3,9 @@ from datetime import date
 import sys
 import os
 
-# Ensure the root directory is in the sys.path to allow importing from download_nfse
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Ensure src and root directories are in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+sys.path.insert(1, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from download_nfse import parse_date
 

@@ -16,7 +16,7 @@ O fluxo de coleta automatizada opera sem interfaces web ou preenchimento de capt
 
 Para acessar os endpoints restritos do ADN, a aplicação realiza autenticação no handshake da camada de transporte (TLS):
 
-- **Certificados A1 (`.pem`):** A chave privada e a cadeia de certificados são extraídas pelo `convert_pfx.py` e passadas como parâmetros de sessão HTTP no Python (`requests.Session(cert=(cert_path, key_path))`).
+- **Certificados A1 (`.pem`):** A chave privada e a cadeia de certificados são extraídas pelo `src/convert_pfx.py` e passadas como parâmetros de sessão HTTP no Python (`requests.Session(cert=(cert_path, key_path))`).
 - **Certificados A3 (Token USB no Windows):** Como drivers de tokens criptográficos (SafeSign, Cryptolib) frequentemente utilizam algoritmos com restrições em OpenSSL nativo (ex.: RSASSA-PSS / TLS 1.3), o sistema utiliza uma ponte com o navegador Chromium via Playwright. A sessão TLS 1.2 é negociada diretamente com a CryptoAPI / Windows Certificate Store, solicitando o PIN uma única vez ao usuário e reutilizando as credenciais de sessão.
 
 ---

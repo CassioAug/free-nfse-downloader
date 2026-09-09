@@ -49,7 +49,7 @@ set "VENV_PYTHON=.venv\Scripts\python.exe"
 
 :run_gui
 echo Iniciando a interface grafica...
-"%VENV_PYTHON%" gui.py
+"%VENV_PYTHON%" src\gui.py
 if errorlevel 1 goto :gui_error
 goto :eof
 

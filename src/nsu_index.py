@@ -46,7 +46,12 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
 
 logger = logging.getLogger("free_nfse_downloader")
 
-NSU_CACHE_DIR = "./cache_nsu"
+try:
+    import setup_dirs
+    NSU_CACHE_DIR = os.path.join(setup_dirs.BASE_DIR, "cache_nsu")
+except Exception:
+    NSU_CACHE_DIR = "./cache_nsu"
+
 NSU_INDEX_STEP = 100
 
 

@@ -48,7 +48,10 @@ import threading
 import subprocess
 import shutil
 import webbrowser
+import updater
 from version import __version__
+
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def format_date_text(text, is_backspace=False):
     """
@@ -84,10 +87,12 @@ try:
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
     _AppBase = ctk.CTk
+    _ToplevelBase = ctk.CTkToplevel
 except Exception:
     tk = None
     filedialog = messagebox = ctk = None
     _AppBase = object
+    _ToplevelBase = object
 
 
 class App(_AppBase):
@@ -99,11 +104,16 @@ class App(_AppBase):
         self.title(f"Free NFS-e Downloader v{__version__}")
         self.geometry("900x700")
 
+        self.update_info = None
+        self.banner_frame = None
+
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=0)  # Linha do banner de atualização
+        self.grid_rowconfigure(1, weight=1)  # Linha principal das abas
+        self.grid_rowconfigure(2, weight=0)  # Linha da caixa de logs
 
         self.tabview = ctk.CTkTabview(self)
-        self.tabview.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        self.tabview.grid(row=1, column=0, padx=20, pady=(10, 10), sticky="nsew")
 
         self.tab_download = self.tabview.add("Download NFS-e")
         self.tab_convert_pfx = self.tabview.add("Converter PFX/P12")
@@ -118,8 +128,11 @@ class App(_AppBase):
         self.setup_about_tab()
 
         self.log_box = ctk.CTkTextbox(self, height=200)
-        self.log_box.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.log_box.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="ew")
         self.log_box.configure(state="disabled")
+
+        # Inicia checagem não-bloqueante de atualizações no GitHub
+        threading.Thread(target=self._check_updates_background, daemon=True).start()
 
     def log(self, message):
         self.log_box.configure(state="normal")
@@ -409,7 +422,7 @@ class App(_AppBase):
 
         self.log_box.delete("0.0", "end")
         self.run_command_interactive(
-            [sys.executable, "download_nfse.py"],
+            [sys.executable, os.path.join(SRC_DIR, "download_nfse.py")],
             inputs,
             "Download Finalizado.",
             "Erro no Download."
@@ -459,7 +472,7 @@ class App(_AppBase):
             messagebox.showerror("Erro", "O caminho do arquivo PFX/P12 é obrigatório.")
             return
 
-        cmd = [sys.executable, "convert_pfx.py", pfx_path, pfx_pass]
+        cmd = [sys.executable, os.path.join(SRC_DIR, "convert_pfx.py"), pfx_path, pfx_pass]
         if pem_out:
             cmd.append(pem_out)
 
@@ -505,7 +518,7 @@ class App(_AppBase):
             messagebox.showerror("Erro", "O diretório e o CNPJ são obrigatórios.")
             return
 
-        cmd = [sys.executable, "organize_nfse.py", "--dir", directory, "--cnpj", cnpj]
+        cmd = [sys.executable, os.path.join(SRC_DIR, "organize_nfse.py"), "--dir", directory, "--cnpj", cnpj]
 
         self.log_box.delete("0.0", "end")
         self.run_command(cmd, "Organização Finalizada.", "Erro na Organização.")
@@ -562,7 +575,7 @@ class App(_AppBase):
         out_path = self.pdf_out_entry.get().strip()
         force = self.force_var.get()
 
-        cmd = [sys.executable, "xml_to_pdf.py"]
+        cmd = [sys.executable, os.path.join(SRC_DIR, "xml_to_pdf.py")]
 
         if input_path:
             cmd.append(input_path)
@@ -595,7 +608,28 @@ class App(_AppBase):
             text=f"Versão {__version__}",
             font=ctk.CTkFont(size=14, slant="italic")
         )
-        lbl_version.pack(pady=(0, 20))
+        lbl_version.pack(pady=(0, 10))
+
+        # Seção de Atualização
+        self.update_card = ctk.CTkFrame(container, fg_color=("gray85", "gray17"), corner_radius=8)
+        self.update_card.pack(pady=(0, 15), padx=20, fill="x")
+
+        self.lbl_update_status = ctk.CTkLabel(
+            self.update_card,
+            text="Verificação automática em segundo plano ativada.",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        self.lbl_update_status.pack(pady=(8, 4), padx=15)
+
+        self.btn_check_update = ctk.CTkButton(
+            self.update_card,
+            text="🔍 Verificar Atualizações",
+            command=self.manual_check_updates,
+            width=220,
+            height=32
+        )
+        self.btn_check_update.pack(pady=(0, 8), padx=15)
 
         lbl_desc = ctk.CTkLabel(
             container,
@@ -603,14 +637,14 @@ class App(_AppBase):
             justify="center",
             font=ctk.CTkFont(size=13)
         )
-        lbl_desc.pack(pady=(0, 25))
+        lbl_desc.pack(pady=(0, 18))
 
         lbl_author = ctk.CTkLabel(
             container,
             text="Desenvolvido por: Cássio Augusto Couto Soares (CassioAug)",
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        lbl_author.pack(pady=(0, 15))
+        lbl_author.pack(pady=(0, 10))
 
         btn_github = ctk.CTkButton(
             container,
@@ -619,7 +653,7 @@ class App(_AppBase):
             width=260,
             height=36
         )
-        btn_github.pack(pady=(0, 25))
+        btn_github.pack(pady=(0, 18))
 
         lbl_license = ctk.CTkLabel(
             container,
@@ -627,6 +661,271 @@ class App(_AppBase):
             font=ctk.CTkFont(size=12, slant="italic")
         )
         lbl_license.pack(pady=(0, 5))
+
+    def _check_updates_background(self):
+        try:
+            info = updater.check_for_updates(__version__, timeout=4)
+            if info:
+                self.update_info = info
+                self.after(0, lambda: self._show_update_notification(info))
+        except Exception:
+            pass
+
+    def _show_update_notification(self, info):
+        if hasattr(self, "lbl_update_status") and self.lbl_update_status:
+            self.lbl_update_status.configure(
+                text=f"✨ Nova versão {info['tag_name']} disponível!",
+                text_color="#28a745"
+            )
+        if hasattr(self, "btn_check_update") and self.btn_check_update:
+            self.btn_check_update.configure(
+                text=f"🚀 Atualizar para {info['tag_name']}",
+                fg_color="#28a745",
+                hover_color="#218838",
+                command=lambda: self.open_update_dialog(info)
+            )
+
+        if self.banner_frame is None and ctk is not None:
+            self.banner_frame = ctk.CTkFrame(self, fg_color=("#D4EDDA", "#1E4620"), corner_radius=6)
+            self.banner_frame.grid(row=0, column=0, padx=20, pady=(10, 0), sticky="ew")
+
+            lbl_banner = ctk.CTkLabel(
+                self.banner_frame,
+                text=f"🎉 Nova versão do Free NFS-e Downloader disponível ({info['tag_name']})!",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=("#155724", "#D4EDDA")
+            )
+            lbl_banner.pack(side="left", padx=15, pady=8)
+
+            btn_update_banner = ctk.CTkButton(
+                self.banner_frame,
+                text="Ver e Atualizar",
+                font=ctk.CTkFont(size=12),
+                height=26,
+                fg_color="#28a745",
+                hover_color="#218838",
+                command=lambda: self.open_update_dialog(info)
+            )
+            btn_update_banner.pack(side="left", padx=10, pady=8)
+
+            btn_close_banner = ctk.CTkButton(
+                self.banner_frame,
+                text="✕",
+                width=26,
+                height=26,
+                font=ctk.CTkFont(size=12),
+                fg_color="transparent",
+                text_color=("#155724", "#D4EDDA"),
+                hover_color=("#C3E6CB", "#295B2B"),
+                command=self.dismiss_banner
+            )
+            btn_close_banner.pack(side="right", padx=10, pady=8)
+
+    def dismiss_banner(self):
+        if self.banner_frame:
+            self.banner_frame.grid_forget()
+
+    def open_update_dialog(self, info=None):
+        target_info = info or self.update_info
+        if target_info:
+            UpdateDialog(self, target_info)
+
+    def manual_check_updates(self):
+        self.btn_check_update.configure(state="disabled", text="Verificando...")
+        self.lbl_update_status.configure(text="Consultando lançamentos no GitHub...", text_color="gray")
+
+        def worker():
+            try:
+                info = updater.check_for_updates(__version__, timeout=6)
+            except Exception:
+                info = None
+            self.after(0, lambda: self._on_manual_check_done(info))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_manual_check_done(self, info):
+        self.btn_check_update.configure(state="normal", text="🔍 Verificar Atualizações")
+        if info:
+            self.update_info = info
+            self._show_update_notification(info)
+            self.open_update_dialog(info)
+        else:
+            self.lbl_update_status.configure(
+                text=f"Você já está utilizando a versão mais recente (v{__version__}).",
+                text_color="gray"
+            )
+
+
+class UpdateDialog(_ToplevelBase):
+    """
+    Diálogo modal moderno para exibição de release notes, download e atualização com 1 clique.
+    """
+    def __init__(self, master, info):
+        if ctk is None:
+            return
+        super().__init__(master)
+        self.master = master
+        self.info = info
+
+        self.title("Atualização - Free NFS-e Downloader")
+        self.geometry("560x520")
+        self.minsize(500, 440)
+
+        try:
+            self.transient(master)
+            self.grab_set()
+        except Exception:
+            pass
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        container = ctk.CTkFrame(self, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Cabeçalho com versão
+        lbl_head = ctk.CTkLabel(
+            container,
+            text=f"Nova Versão {self.info.get('tag_name', '')} Disponível!",
+            font=ctk.CTkFont(size=20, weight="bold")
+        )
+        lbl_head.pack(pady=(0, 4), anchor="w")
+
+        lbl_sub = ctk.CTkLabel(
+            container,
+            text=self.info.get("title") or "Atualização oficial do Free NFS-e Downloader",
+            font=ctk.CTkFont(size=13, slant="italic"),
+            text_color="gray"
+        )
+        lbl_sub.pack(pady=(0, 10), anchor="w")
+
+        # Caixa de Release Notes
+        lbl_notes_title = ctk.CTkLabel(
+            container,
+            text="O que há de novo nesta versão:",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        lbl_notes_title.pack(anchor="w", pady=(4, 3))
+
+        self.txt_notes = ctk.CTkTextbox(container, height=180, font=ctk.CTkFont(size=12))
+        self.txt_notes.pack(fill="both", expand=True, pady=(0, 10))
+        self.txt_notes.insert("0.0", self.info.get("body", "Sem notas adicionais."))
+        self.txt_notes.configure(state="disabled")
+
+        # Garantia de segurança de dados fiscais
+        lbl_security = ctk.CTkLabel(
+            container,
+            text="[OK] Seus certificados (.pem/.pfx) e notas fiscais já baixadas não serão afetados.",
+            font=ctk.CTkFont(size=11),
+            text_color="#28a745"
+        )
+        lbl_security.pack(anchor="w", pady=(0, 10))
+
+        # Barra de progresso do download
+        self.progress_bar = ctk.CTkProgressBar(container, mode="determinate")
+        self.progress_bar.set(0)
+        self.progress_bar.pack(fill="x", pady=(0, 5))
+        self.progress_bar.pack_forget()
+
+        self.lbl_progress = ctk.CTkLabel(
+            container,
+            text="",
+            font=ctk.CTkFont(size=12)
+        )
+        self.lbl_progress.pack(anchor="w", pady=(0, 10))
+        self.lbl_progress.pack_forget()
+
+        # Botões de Ação
+        self.actions_frame = ctk.CTkFrame(container, fg_color="transparent")
+        self.actions_frame.pack(fill="x", pady=(5, 0))
+
+        self.btn_update = ctk.CTkButton(
+            self.actions_frame,
+            text="🚀 Atualizar Agora",
+            command=self.start_download,
+            fg_color="#28a745",
+            hover_color="#218838",
+            height=36
+        )
+        self.btn_update.pack(side="left", padx=(0, 10))
+
+        self.btn_browser = ctk.CTkButton(
+            self.actions_frame,
+            text="🌐 Ver no GitHub",
+            command=lambda: webbrowser.open(self.info.get("html_url", "")),
+            height=36,
+            fg_color=("gray75", "gray25"),
+            text_color=("black", "white"),
+            hover_color=("gray65", "gray35")
+        )
+        self.btn_browser.pack(side="left", padx=(0, 10))
+
+        self.btn_cancel = ctk.CTkButton(
+            self.actions_frame,
+            text="Lembrar Mais Tarde",
+            command=self.destroy,
+            fg_color="transparent",
+            border_width=1,
+            height=36
+        )
+        self.btn_cancel.pack(side="right")
+
+    def start_download(self):
+        zip_url = self.info.get("zip_url")
+        if not zip_url:
+            webbrowser.open(self.info.get("html_url", ""))
+            self.destroy()
+            return
+
+        self.btn_update.configure(state="disabled")
+        self.btn_cancel.configure(state="disabled")
+        self.btn_browser.configure(state="disabled")
+
+        self.progress_bar.pack(fill="x", pady=(0, 5))
+        self.lbl_progress.pack(anchor="w", pady=(0, 10))
+        self.lbl_progress.configure(text="Conectando ao servidor do GitHub...")
+
+        def worker():
+            try:
+                def on_progress(pct, downloaded, total):
+                    mb_down = downloaded / (1024 * 1024)
+                    mb_total = total / (1024 * 1024)
+                    text = f"Baixando pacote: {mb_down:.1f} MB de {mb_total:.1f} MB ({int(pct * 100)}%)"
+                    self.after(0, lambda: self._update_progress_ui(pct, text))
+
+                staging_dir = updater.download_and_extract_update(zip_url, progress_callback=on_progress)
+                self.after(0, lambda: self._on_download_complete(staging_dir))
+            except Exception as e:
+                self.after(0, lambda: self._on_download_error(str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_progress_ui(self, pct, text):
+        self.progress_bar.set(pct)
+        self.lbl_progress.configure(text=text)
+
+    def _on_download_complete(self, staging_dir):
+        self.progress_bar.set(1.0)
+        self.lbl_progress.configure(
+            text="[OK] Download concluído! Reiniciando aplicação...",
+            text_color="#28a745"
+        )
+        try:
+            updater.trigger_update_process(staging_dir)
+        except Exception as e:
+            self._on_download_error(f"Erro ao disparar atualizador: {e}")
+            return
+
+        self.after(1200, self.master.destroy)
+
+    def _on_download_error(self, error_msg):
+        self.lbl_progress.configure(
+            text=f"[ERRO] {error_msg}",
+            text_color="red"
+        )
+        self.btn_update.configure(state="normal", text="Tentar Novamente")
+        self.btn_cancel.configure(state="normal")
+        self.btn_browser.configure(state="normal")
 
 
 if __name__ == "__main__":

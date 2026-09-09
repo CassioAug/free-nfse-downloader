@@ -36,4 +36,4 @@ if [ -f "$SCRIPT_DIR/.venv/lib/libtk8.6.so" ]; then
 fi
 
 echo "Iniciando a interface gráfica..."
-"$VENV_PYTHON" gui.py
+"$VENV_PYTHON" src/gui.py

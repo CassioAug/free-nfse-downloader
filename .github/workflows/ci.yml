@@ -37,19 +37,23 @@ jobs:
       - name: Validate Shell Scripts (Linux)
         if: runner.os == 'Linux'
         run: |
-          bash -n *.sh
+          bash -n *.sh scripts/*.sh
 
       - name: Sanity Import Check (Core Modules)
         run: |
-          python -c "import cert_handler, convert_pfx, download_nfse, nsu_index, organize_nfse, xml_to_pdf, setup_dirs, version"
+          python -c "import sys; sys.path.insert(0, 'src'); import cert_handler, convert_pfx, download_nfse, nsu_index, organize_nfse, xml_to_pdf, setup_dirs, version, updater"
+
+      - name: Run Unit Tests
+        run: |
+          python -m unittest discover tests
 
       - name: Sanity Import Check (GUI with Virtual Display on Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update && sudo apt-get install -y xvfb python3-tk tk
-          xvfb-run python -c "import gui"
+          xvfb-run python -c "import sys; sys.path.insert(0, 'src'); import gui"
 
       - name: Sanity Import Check (GUI on Windows)
         if: runner.os == 'Windows'
         run: |
-          python -c "import gui"
+          python -c "import sys; sys.path.insert(0, 'src'); import gui"
