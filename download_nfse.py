@@ -14,6 +14,19 @@
 
 import os
 import sys
+
+# Reconfiguração segura de stream para Windows/consoles legados
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import subprocess
 import re
 import logging
@@ -28,7 +41,7 @@ from nsu_index import locate_nsu_by_date, save_nsu_index_entry, save_nsu_locatio
 logger = logging.getLogger("free_nfse_downloader")
 
 # --- Validação e Instalação Automática de Dependências ---
-def check_install_dependencies():
+def check_install_dependencies(interactive=False):
     required = {
         "requests": "requests",
         "cryptography": "cryptography"
@@ -43,45 +56,48 @@ def check_install_dependencies():
             
     if missing:
         print(f"Dependências básicas ausentes: {', '.join(missing)}")
-        resp = input("Deseja instalá-las automaticamente via pip? (s/n): ").strip().lower()
-        if resp == 's':
-            try:
-                subprocess.run([sys.executable, "-m", "pip", "install"] + missing, check=True)
-                print("Dependências básicas instaladas com sucesso!\n")
-            except Exception as e:
-                print(f"Erro ao instalar: {e}")
-                print(f"Instale manualmente rodando: pip install {' '.join(missing)}")
+        if interactive and sys.stdin and sys.stdin.isatty():
+            resp = input("Deseja instalá-las automaticamente via pip? (s/n): ").strip().lower()
+            if resp == 's':
+                try:
+                    subprocess.run([sys.executable, "-m", "pip", "install"] + missing, check=True)
+                    print("Dependências básicas instaladas com sucesso!\n")
+                except Exception as e:
+                    print(f"Erro ao instalar: {e}")
+                    print(f"Instale manualmente rodando: pip install {' '.join(missing)}")
+                    sys.exit(1)
+            else:
+                print("Erro: O script necessita dessas dependências para funcionar.")
                 sys.exit(1)
         else:
-            print("Erro: O script necessita dessas dependências para funcionar.")
+            print(f"Erro: Dependências ausentes ({', '.join(missing)}). Instale executando: pip install {' '.join(missing)}")
             sys.exit(1)
 
     # Verifica a biblioteca opcional/recomendada para geração do DANFSE PDF
-    global HAS_DANFSE_LIB
+    global HAS_DANFSE_LIB, Danfse
     try:
         import brazilfiscalreport
         from brazilfiscalreport.danfse import Danfse
         HAS_DANFSE_LIB = True
     except ImportError:
-        print("\nAviso: A biblioteca 'brazilfiscalreport' (para gerar o PDF da DANF) não está instalada.")
-        resp = input("Deseja instalá-la agora com suporte a DANFSE? (s/n): ").strip().lower()
-        if resp == 's':
-            try:
-                print("Instalando 'brazilfiscalreport[danfse]'... (pode demorar um pouco)")
-                subprocess.run([sys.executable, "-m", "pip", "install", "brazilfiscalreport[danfse]"], check=True)
-                global Danfse
-                from brazilfiscalreport.danfse import Danfse
-                HAS_DANFSE_LIB = True
-                print("Biblioteca 'brazilfiscalreport' instalada com sucesso!\n")
-            except Exception as e:
-                print(f"Erro ao instalar: {e}")
+        HAS_DANFSE_LIB = False
+        if interactive and sys.stdin and sys.stdin.isatty():
+            print("\nAviso: A biblioteca 'brazilfiscalreport' (para gerar o PDF da DANF) não está instalada.")
+            resp = input("Deseja instalá-la agora com suporte a DANFSE? (s/n): ").strip().lower()
+            if resp == 's':
+                try:
+                    print("Instalando 'brazilfiscalreport[danfse]'... (pode demorar um pouco)")
+                    subprocess.run([sys.executable, "-m", "pip", "install", "brazilfiscalreport[danfse]"], check=True)
+                    from brazilfiscalreport.danfse import Danfse
+                    HAS_DANFSE_LIB = True
+                    print("Biblioteca 'brazilfiscalreport' instalada com sucesso!\n")
+                except Exception as e:
+                    print(f"Erro ao instalar: {e}")
+                    print("O script continuará apenas baixando os XMLs (sem gerar PDF).\n")
+            else:
                 print("O script continuará apenas baixando os XMLs (sem gerar PDF).\n")
-                HAS_DANFSE_LIB = False
-        else:
-            print("O script continuará apenas baixando os XMLs (sem gerar PDF).\n")
-            HAS_DANFSE_LIB = False
 
-check_install_dependencies()
+check_install_dependencies(interactive=False)
 
 try:
     import cert_handler
@@ -276,7 +292,7 @@ def extract_cnpj_from_subject(subject_str):
     Extrai o CNPJ (14 dígitos) do campo Subject de um certificado digital.
     
     Estratégias por ordem de prioridade:
-      1. CNPJ após ':' no campo CN (commonName) — formato típico de e-CNPJ:
+      1. CNPJ após ':' no campo CN (commonName) - formato típico de e-CNPJ:
          "CN=Nome da Empresa:12345678000199"
       2. Padrão explícito 'CNPJ: 12345678000199' ou 'CPF/CNPJ: 12345678000199'
       3. Primeiro grupo de 14 dígitos dentro de campos OU (OrganizationalUnit)
@@ -314,8 +330,8 @@ def extract_cnpj_from_pem(pem_path):
     Usa a biblioteca cryptography para ler o certificado e obter o subject.
     
     Estratégias por ordem de prioridade:
-      1. CNPJ após ':' no campo CN (commonName) — via OID estruturado
-      2. CNPJ em campos OU (organizationalUnitName) — via OID estruturado
+      1. CNPJ após ':' no campo CN (commonName) - via OID estruturado
+      2. CNPJ em campos OU (organizationalUnitName) - via OID estruturado
       3. Fallback para extract_cnpj_from_subject com string do subject
       4. Extração do nome do arquivo PEM (padrão: *_{CNPJ}.pem)
     """
@@ -381,6 +397,9 @@ def extract_cnpj_from_pem(pem_path):
 
 
 def main():
+    if not HAS_DANFSE_LIB and sys.stdin and sys.stdin.isatty():
+        check_install_dependencies(interactive=True)
+
     print("=== free-nfse-downloader ===")
     print("Este script consome a API do Ambiente de Dados Nacional.\n")
 
@@ -728,7 +747,7 @@ def main():
     # Salva cache NSU->data para localização futura sem busca
     if first_nsu_in_period and cnpj_label and env_choice:
         save_nsu_location_cache(cnpj_label, env_choice, start_date, first_nsu_in_period)
-        logger.info(f"Cache de data salvo: {start_date.strftime('%d/%m/%Y')} → NSU {first_nsu_in_period}")
+        logger.info(f"Cache de data salvo: {start_date.strftime('%d/%m/%Y')} -> NSU {first_nsu_in_period}")
 
     logger.info("Pronto para o próximo download!")
     return 0

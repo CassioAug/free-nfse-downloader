@@ -13,7 +13,7 @@
 # GNU General Public License for more details.
 
 """
-Gerencia o índice de NSUs (NSU → data de emissão) e a localização
+Gerencia o índice de NSUs (NSU -> data de emissão) e a localização
 do NSU correspondente a uma data.
 
 O índice é construído varrendo NSUs de 100 em 100 (1, 100, 200, 300...)
@@ -23,6 +23,7 @@ persistido em cache_nsu/{cnpj}_{env}_index.json.
 Uso:
     from nsu_index import locate_nsu_by_date, save_nsu_index_entry
 """
+import sys
 import os
 import json
 import re
@@ -32,13 +33,24 @@ import gzip
 import base64
 from datetime import date, datetime, timedelta
 
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 logger = logging.getLogger("free_nfse_downloader")
 
 NSU_CACHE_DIR = "./cache_nsu"
 NSU_INDEX_STEP = 100
 
 
-# --- Cache data → NSU (para localização exata por data) ---
+# --- Cache data -> NSU (para localização exata por data) ---
 
 def _nsu_cache_path(cnpj, env_choice, start_date):
     key = f"{cnpj}_{env_choice}_{start_date.strftime('%Y-%m-%d')}"
@@ -105,7 +117,7 @@ def save_nsu_location_cache(cnpj, env_choice, start_date, nsu_encontrado):
         logger.warning(f"Não foi possível salvar cache de localização: {e}")
 
 
-# --- Índice NSU → data (construído de 100 em 100) ---
+# --- Índice NSU -> data (construído de 100 em 100) ---
 
 def _nsu_index_path(cnpj, env_choice):
     return os.path.join(NSU_CACHE_DIR, f"{cnpj}_{env_choice}_index.json")
@@ -321,7 +333,7 @@ def _extend_nsu_index(download_func, base_url, cnpj_label, env_choice):
     """
     Varre NSUs de 100 em 100 (1, 100, 200, 300...)
     até encontrar 3 NSUs consecutivos sem dados.
-    Atualiza o índice NSU→data para cada NSU que encontrar dados.
+    Atualiza o índice NSU->data para cada NSU que encontrar dados.
     """
     index = load_nsu_index(cnpj_label, env_choice)
     indexed_nsus = sorted(int(k) for k in index.keys())
@@ -344,13 +356,13 @@ def _extend_nsu_index(download_func, base_url, cnpj_label, env_choice):
             save_nsu_index_entry(cnpj_label, env_choice, nsu, data_encontrada)
             novas += 1
             empty_count = 0
-            print(f"  NSU {nsu}: {data_encontrada.strftime('%d/%m/%Y')} ✓")
+            print(f"  NSU {nsu}: {data_encontrada.strftime('%d/%m/%Y')} [OK]")
         else:
             empty_count += 1
             print(f"  NSU {nsu}: sem dados ({empty_count}/3)")
 
         if nsu == 1:
-            nsu = NSU_INDEX_STEP  # 1 → 100
+            nsu = NSU_INDEX_STEP  # 1 -> 100
         else:
             nsu += NSU_INDEX_STEP
 
@@ -364,9 +376,9 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
     """
     Localiza o NSU correspondente à data inicial usando o índice.
 
-    1. Cache exato (data→NSU) → 0 requisições
-    2. Índice cobre a data → busca binária entre as entradas (~7 req)
-    3. Índice não cobre → estende com varredura de 100 em 100, depois binária
+    1. Cache exato (data->NSU) -> 0 requisições
+    2. Índice cobre a data -> busca binária entre as entradas (~7 req)
+    3. Índice não cobre -> estende com varredura de 100 em 100, depois binária
     """
     print(f"\n[Busca] Localizando NSU para {start_date.strftime('%d/%m/%Y')}...")
 
@@ -412,7 +424,7 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
 
             safety = 30
             nsu_final = max(1, best_nsu - safety)
-            print(f"  NSU exato: {best_nsu} → inicial: {nsu_final}")
+            print(f"  NSU exato: {best_nsu} -> inicial: {nsu_final}")
             if nsu_encontrado:
                 save_nsu_location_cache(cnpj_label, env_choice, start_date, best_nsu)
             return nsu_final

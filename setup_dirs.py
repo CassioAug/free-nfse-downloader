@@ -17,6 +17,18 @@
 import os
 import sys
 
+# Reconfiguração segura de stream para Windows/consoles legados
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Diretório base do projeto (onde este script reside)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 

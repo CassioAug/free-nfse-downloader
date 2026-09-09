@@ -22,6 +22,19 @@ Uso standalone:
 """
 import os
 import sys
+
+# Reconfiguração segura de stream para Windows/consoles legados
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import re
 import shutil
 import logging
@@ -93,10 +106,10 @@ def get_service_type(xml_str, cnpj_label):
         if cnpj_label in cnpj_ordenados:
             idx = cnpj_ordenados.index(cnpj_label)
             if idx == 0:
-                logger.info(f"    -> CNPJ {cnpj_label} é o primeiro CNPJ do XML → PRESTADOR (fallback)")
+                logger.info(f"    -> CNPJ {cnpj_label} é o primeiro CNPJ do XML -> PRESTADOR (fallback)")
                 return 'prestado'
             elif idx >= 1:
-                logger.info(f"    -> CNPJ {cnpj_label} é o {idx+1}º CNPJ do XML → TOMADOR (fallback)")
+                logger.info(f"    -> CNPJ {cnpj_label} é o {idx+1}º CNPJ do XML -> TOMADOR (fallback)")
                 return 'tomado'
 
         logger.warning(f"Não foi possível classificar serviço. "
@@ -150,14 +163,14 @@ def organize_directory(directory, cnpj_label):
         if tipo == 'prestado':
             shutil.move(fpath, os.path.join(prestados_dir, fname))
             prestados += 1
-            logger.info(f"  {fname} → prestados/")
+            logger.info(f"  {fname} -> prestados/")
         elif tipo == 'tomado':
             shutil.move(fpath, os.path.join(tomados_dir, fname))
             tomados += 1
-            logger.info(f"  {fname} → tomados/")
+            logger.info(f"  {fname} -> tomados/")
         else:
             indeterminados += 1
-            logger.warning(f"  {fname} → indeterminado (mantido na raiz)")
+            logger.warning(f"  {fname} -> indeterminado (mantido na raiz)")
 
     total = prestados + tomados + indeterminados + erros
     logger.info(f"Organização concluída: {prestados} prestados, {tomados} tomados, "

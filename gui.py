@@ -16,6 +16,19 @@
 
 import os
 import sys
+
+# Reconfiguração segura de stream para Windows/consoles legados
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Suporte a Tk embutido no .venv (Linux) se o sistema não possuir tk instalado
 if sys.platform.startswith("linux") and "TK_LIBRARY" not in os.environ:
     _venv_lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "lib")
@@ -81,12 +94,18 @@ class App(ctk.CTk):
         def task():
             self.log(f"Executando...\n")
             try:
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                env["PYTHONUTF8"] = "1"
                 process = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=env,
                     bufsize=1,
                     universal_newlines=True
                 )
@@ -117,11 +136,17 @@ class App(ctk.CTk):
         def task():
             self.log(f"Executando...\n")
             try:
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                env["PYTHONUTF8"] = "1"
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=env,
                     bufsize=1,
                     universal_newlines=True
                 )
@@ -263,10 +288,22 @@ class App(ctk.CTk):
                  messagebox.showerror("Erro", "Pasta ./certificados não encontrada")
                  return
         else: # A3
-            a3_idx = self.a3_index_entry.get().strip()
-            if not a3_idx:
-                a3_idx = "1"
-            inputs.append(a3_idx)
+            # Se houver apenas 1 certificado de token, o script seleciona automaticamente
+            # e não solicita índice via stdin (evita descompasso que afetava a Data Inicial).
+            needs_a3_index = True
+            try:
+                import cert_handler
+                token_certs = cert_handler.list_token_certs()
+                if len(token_certs) <= 1:
+                    needs_a3_index = False
+            except Exception:
+                pass
+
+            if needs_a3_index:
+                a3_idx = self.a3_index_entry.get().strip()
+                if not a3_idx:
+                    a3_idx = "1"
+                inputs.append(a3_idx)
 
         # Se houver CNPJ, o script pode pedir se o auto extrair falhar, mas vamos assumir que não precisa
         # Data

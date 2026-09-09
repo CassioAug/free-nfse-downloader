@@ -2,6 +2,9 @@
 chcp 65001 >nul
 title Free NFS-e Downloader
 
+set "PYTHONIOENCODING=utf-8"
+set "PYTHONUTF8=1"
+
 REM Garantir que estamos no diretorio do script
 cd /d "%~dp0"
 

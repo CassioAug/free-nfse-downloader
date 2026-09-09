@@ -2,6 +2,9 @@
 chcp 65001 >nul
 title Free NFS-e Downloader - Instalador de Dependencias
 
+set "PYTHONIOENCODING=utf-8"
+set "PYTHONUTF8=1"
+
 echo ======================================================
 echo    Free NFS-e Downloader - Instalador de Dependencias
 echo ======================================================
