@@ -14,6 +14,11 @@ class TestParseDate(unittest.TestCase):
         """Test valid standard date string."""
         self.assertEqual(parse_date("01/05/2026"), date(2026, 5, 1))
 
+    def test_valid_date_numeric_only(self):
+        """Test valid numeric-only date string without slashes."""
+        self.assertEqual(parse_date("01052026"), date(2026, 5, 1))
+        self.assertEqual(parse_date("  15102026  "), date(2026, 10, 15))
+
     def test_valid_date_with_spaces(self):
         """Test valid date string with leading and trailing spaces."""
         self.assertEqual(parse_date("  15/10/2026  "), date(2026, 10, 15))

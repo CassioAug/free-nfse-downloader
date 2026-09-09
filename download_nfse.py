@@ -217,7 +217,10 @@ API_URLS = {
 
 def parse_date(date_str):
     try:
-        return datetime.strptime(date_str.strip(), "%d/%m/%Y").date()
+        s = str(date_str).strip()
+        if len(s) == 8 and s.isdigit():
+            return datetime.strptime(s, "%d%m%Y").date()
+        return datetime.strptime(s, "%d/%m/%Y").date()
     except (ValueError, AttributeError):
         return None
 

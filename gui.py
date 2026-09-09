@@ -43,20 +43,57 @@ if sys.platform.startswith("linux") and "TK_LIBRARY" not in os.environ:
                 _env["TK_LIBRARY"] = os.path.join(_venv_lib, "tk8.6")
                 os.execve(sys.executable, [sys.executable] + sys.argv, _env)
 
+import re
 import threading
-import tkinter as tk
-from tkinter import filedialog, messagebox
-import customtkinter as ctk
 import subprocess
 import shutil
 import webbrowser
 from version import __version__
 
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
+def format_date_text(text, is_backspace=False):
+    """
+    Formata string de data para o padrão DD/MM/YYYY.
+    Extrai dígitos e adiciona as barras conforme o usuário digita.
+    """
+    if not text:
+        return ""
+    digits = re.sub(r'\D', '', str(text))[:8]
+    if is_backspace:
+        if len(digits) <= 2:
+            return digits
+        elif len(digits) <= 4:
+            return f"{digits[:2]}/{digits[2:]}"
+        else:
+            return f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
+    else:
+        if len(digits) == 2:
+            return f"{digits}/"
+        elif len(digits) == 4:
+            return f"{digits[:2]}/{digits[2:4]}/"
+        elif len(digits) < 2:
+            return digits
+        elif len(digits) < 4:
+            return f"{digits[:2]}/{digits[2:]}"
+        else:
+            return f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
 
-class App(ctk.CTk):
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+    import customtkinter as ctk
+    ctk.set_appearance_mode("System")
+    ctk.set_default_color_theme("blue")
+    _AppBase = ctk.CTk
+except Exception:
+    tk = None
+    filedialog = messagebox = ctk = None
+    _AppBase = object
+
+
+class App(_AppBase):
     def __init__(self):
+        if ctk is None:
+            raise RuntimeError("Tkinter e CustomTkinter são necessários para executar a interface gráfica.")
         super().__init__()
 
         self.title(f"Free NFS-e Downloader v{__version__}")
@@ -178,6 +215,58 @@ class App(ctk.CTk):
         self.btn_organize.configure(state="normal")
         self.btn_convert_xml.configure(state="normal")
 
+    def _on_date_key_release(self, entry, event=None):
+        # Ignora teclas de navegação, modificadores e comandos de sistema
+        if event and event.keysym in (
+            "Left", "Right", "Up", "Down", "Home", "End",
+            "Tab", "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+            "Return", "Escape"
+        ):
+            return
+
+        is_backspace = bool(event and event.keysym in ("BackSpace", "Delete"))
+        current = entry.get()
+
+        try:
+            cursor_pos = entry.index(tk.INSERT)
+        except Exception:
+            cursor_pos = len(current)
+
+        digits_before = len(re.sub(r'\D', '', current[:cursor_pos]))
+        formatted = format_date_text(current, is_backspace=is_backspace)
+
+        if current != formatted:
+            entry.delete(0, tk.END)
+            entry.insert(0, formatted)
+
+            # Recalcula a nova posição do cursor mantendo o ponto de digitação correto
+            if digits_before == 0:
+                new_pos = 0
+            else:
+                count = 0
+                new_pos = len(formatted)
+                for idx, ch in enumerate(formatted):
+                    if ch.isdigit():
+                        count += 1
+                        if count == digits_before:
+                            new_pos = idx + 1
+                            if not is_backspace and new_pos < len(formatted) and formatted[new_pos] == '/':
+                                new_pos += 1
+                            break
+            try:
+                entry.icursor(new_pos)
+            except Exception:
+                pass
+
+    def _on_date_focus_out(self, entry, event=None):
+        current = entry.get().strip()
+        if not current:
+            return
+        formatted = format_date_text(current, is_backspace=True)
+        if current != formatted:
+            entry.delete(0, tk.END)
+            entry.insert(0, formatted)
+
     def setup_download_tab(self):
         frame = ctk.CTkFrame(self.tab_download)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -216,11 +305,15 @@ class App(ctk.CTk):
         ctk.CTkLabel(frame, text="Data Inicial (DD/MM/YYYY):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
         self.start_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 01/01/2026", width=180)
         self.start_date_entry.grid(row=3, column=1, padx=10, pady=10, sticky="w")
+        self.start_date_entry.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.start_date_entry, e))
+        self.start_date_entry.bind("<FocusOut>", lambda e: self._on_date_focus_out(self.start_date_entry, e))
 
         # End Date
         ctk.CTkLabel(frame, text="Data Final (DD/MM/YYYY):").grid(row=4, column=0, padx=10, pady=10, sticky="w")
         self.end_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 31/01/2026 (Deixe vazio para hoje)", width=280)
         self.end_date_entry.grid(row=4, column=1, padx=10, pady=10, sticky="w")
+        self.end_date_entry.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.end_date_entry, e))
+        self.end_date_entry.bind("<FocusOut>", lambda e: self._on_date_focus_out(self.end_date_entry, e))
 
         # Start Button
         self.btn_start_download = ctk.CTkButton(frame, text="Iniciar Download", command=self.start_download)
@@ -249,8 +342,9 @@ class App(ctk.CTk):
 
     def start_download(self):
         cert_type = self.cert_type_var.get()
-        start_date = self.start_date_entry.get().strip()
-        end_date = self.end_date_entry.get().strip()
+        start_date = format_date_text(self.start_date_entry.get().strip())
+        raw_end = self.end_date_entry.get().strip()
+        end_date = format_date_text(raw_end) if raw_end else ""
         cnpj = self.cnpj_entry.get().strip()
 
         if not start_date:
