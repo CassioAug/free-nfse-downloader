@@ -52,6 +52,7 @@ import updater
 from version import __version__
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(SRC_DIR)
 
 def format_date_text(text, is_backspace=False):
     """
@@ -147,6 +148,7 @@ class App(_AppBase):
                 env = os.environ.copy()
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["PYTHONUTF8"] = "1"
+                env["PYTHONUNBUFFERED"] = "1"
                 process = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
@@ -189,8 +191,10 @@ class App(_AppBase):
                 env = os.environ.copy()
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["PYTHONUTF8"] = "1"
+                env["PYTHONUNBUFFERED"] = "1"
                 process = subprocess.Popen(
                     cmd,
+                    stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -328,9 +332,14 @@ class App(_AppBase):
         self.end_date_entry.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.end_date_entry, e))
         self.end_date_entry.bind("<FocusOut>", lambda e: self._on_date_focus_out(self.end_date_entry, e))
 
+        # Ignore NSU Cache Checkbox
+        self.ignore_cache_var = tk.BooleanVar(value=False)
+        self.chk_ignore_cache = ctk.CTkCheckBox(frame, text="Ignorar cache NSU (forçar busca ampla)", variable=self.ignore_cache_var)
+        self.chk_ignore_cache.grid(row=5, column=0, columnspan=2, padx=10, pady=(5, 10), sticky="w")
+
         # Start Button
         self.btn_start_download = ctk.CTkButton(frame, text="Iniciar Download", command=self.start_download)
-        self.btn_start_download.grid(row=5, column=0, columnspan=3, pady=20)
+        self.btn_start_download.grid(row=6, column=0, columnspan=3, pady=15)
 
         # We also need dummy buttons for other tabs so they can be disabled initially
         self.btn_convert_pfx = ctk.CTkButton(self.tab_convert_pfx, text="")
@@ -351,7 +360,7 @@ class App(_AppBase):
             self.cert_entry.grid_remove()
 
             self.lbl_a3_index.grid(row=1, column=0, padx=10, pady=10, sticky="w")
-            self.a3_index_entry.grid(row=1, column=1, padx=10, pady=10, sticky="w")
+            self.a3_index_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
     def start_download(self):
         cert_type = self.cert_type_var.get()
@@ -361,22 +370,23 @@ class App(_AppBase):
         cnpj = self.cnpj_entry.get().strip()
 
         if not start_date:
-            messagebox.showerror("Erro", "A Data Inicial é obrigatória.")
+            messagebox.showerror("Erro", "A data inicial é obrigatória.")
             return
 
-        inputs = [cert_type]
+        inputs = []
+        inputs.append(cert_type)
 
         if cert_type == "1": # PEM
-            # We assume there's a file in ./certificados
-            pem_name = self.cert_entry.get().strip()
-            cert_dir = "./certificados"
-
+            cert_name = self.cert_entry.get().strip()
+            # If user specified something, we might need to select it, but download_nfse lists files in ./certificados
+            # If there's multiple, it asks for index.
+            cert_dir = os.path.join(BASE_DIR, "certificados")
             if os.path.exists(cert_dir):
-                files = [f for f in os.listdir(cert_dir) if f.lower().endswith('.pem')]
+                files = [f for f in os.listdir(cert_dir) if f.endswith(".pem")]
                 if len(files) > 1:
+                    pem_name = self.cert_entry.get().strip()
                     if not pem_name:
-                        messagebox.showwarning("Aviso", f"Existem múltiplos arquivos PEM em {cert_dir}. O primeiro será selecionado automaticamente (ou informe um índice no campo 'Certificado PEM').")
-                        inputs.append("1") # Seleciona o primeiro
+                        inputs.append("1")
                     elif pem_name.isdigit():
                         inputs.append(pem_name)
                     else:
@@ -386,17 +396,14 @@ class App(_AppBase):
                         except ValueError:
                             inputs.append("1")
                 elif len(files) == 1:
-                    # Nenhuma entrada é solicitada pelo script se houver apenas 1
                     pass
                 else:
                     messagebox.showerror("Erro", "Nenhum arquivo .pem encontrado em ./certificados")
                     return
             else:
-                 messagebox.showerror("Erro", "Pasta ./certificados não encontrada")
-                 return
+                messagebox.showerror("Erro", "Pasta ./certificados não encontrada")
+                return
         else: # A3
-            # Se houver apenas 1 certificado de token, o script seleciona automaticamente
-            # e não solicita índice via stdin (evita descompasso que afetava a Data Inicial).
             needs_a3_index = True
             try:
                 import cert_handler
@@ -412,17 +419,19 @@ class App(_AppBase):
                     a3_idx = "1"
                 inputs.append(a3_idx)
 
-        # Se houver CNPJ, o script pode pedir se o auto extrair falhar, mas vamos assumir que não precisa
-        # Data
         inputs.append(start_date)
         if end_date:
             inputs.append(end_date)
         else:
             inputs.append("") # Deixa vazio para pegar a data de hoje
 
+        cmd = [sys.executable, os.path.join(SRC_DIR, "download_nfse.py")]
+        if self.ignore_cache_var.get():
+            cmd.append("--ignorar-cache")
+
         self.log_box.delete("0.0", "end")
         self.run_command_interactive(
-            [sys.executable, os.path.join(SRC_DIR, "download_nfse.py")],
+            cmd,
             inputs,
             "Download Finalizado.",
             "Erro no Download."
@@ -475,6 +484,10 @@ class App(_AppBase):
         cmd = [sys.executable, os.path.join(SRC_DIR, "convert_pfx.py"), pfx_path, pfx_pass]
         if pem_out:
             cmd.append(pem_out)
+        else:
+            base_name = os.path.basename(pfx_path)
+            default_pem = os.path.join(os.path.join(BASE_DIR, "certificados"), os.path.splitext(base_name)[0] + ".pem")
+            cmd.append(default_pem)
 
         self.log_box.delete("0.0", "end")
         self.run_command(cmd, "Conversão Finalizada.", "Erro na Conversão.")

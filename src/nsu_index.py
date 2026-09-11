@@ -377,7 +377,7 @@ def _extend_nsu_index(download_func, base_url, cnpj_label, env_choice):
 
 # --- Localização principal ---
 
-def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env_choice=None):
+def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env_choice=None, ignore_cache=False):
     """
     Localiza o NSU correspondente à data inicial usando o índice.
 
@@ -388,11 +388,13 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
     print(f"\n[Busca] Localizando NSU para {start_date.strftime('%d/%m/%Y')}...")
 
     # Nível 1: Cache exato
-    if cnpj_label and env_choice:
+    if cnpj_label and env_choice and not ignore_cache:
         cached_nsu, origem = load_nsu_location_cache(cnpj_label, env_choice, start_date)
         if cached_nsu and origem == "exato":
-            print(f"  Cache exato: NSU {cached_nsu}")
-            return cached_nsu
+            safety = 50
+            nsu_final = max(1, cached_nsu - safety)
+            print(f"  Cache exato: NSU {cached_nsu} -> inicial (com margem de segurança {safety}): {nsu_final}")
+            return nsu_final
 
     # Nível 2: Índice
     if cnpj_label and env_choice:
@@ -405,7 +407,7 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
 
             if idx_high is None:
                 print(f"  Índice não cobre a data alvo após extensão. Retornando NSU {idx_low} como aproximação.")
-                safety = 30
+                safety = 50
                 nsu_final = max(1, idx_low - safety)
                 return nsu_final
 
@@ -427,7 +429,7 @@ def locate_nsu_by_date(download_func, base_url, start_date, cnpj_label=None, env
                 else:
                     high = mid - 1
 
-            safety = 30
+            safety = 50
             nsu_final = max(1, best_nsu - safety)
             print(f"  NSU exato: {best_nsu} -> inicial: {nsu_final}")
             if nsu_encontrado:

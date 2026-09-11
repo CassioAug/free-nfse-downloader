@@ -402,6 +402,13 @@ def extract_cnpj_from_pem(pem_path):
 
 
 def main():
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print("Uso: python3 download_nfse.py [--ignorar-cache | --no-cache]")
+        print("Opções:")
+        print("  --ignorar-cache, --no-cache   Ignora cache de localização de NSU e força busca ampla.")
+        print("  -h, --help                    Exibe esta mensagem de ajuda.")
+        return 0
+
     if not HAS_DANFSE_LIB and sys.stdin and sys.stdin.isatty():
         check_install_dependencies(interactive=True)
 
@@ -568,7 +575,10 @@ def main():
 
     # 6. Localização automática do NSU (baseada no índice)
     print("\n[Busca] Localizando NSU inicial para o período...")
-    nsu = locate_nsu_by_date(do_download, base_url, start_date, cnpj_label, env_choice)
+    ignore_cache = ("--ignorar-cache" in sys.argv) or ("--no-cache" in sys.argv)
+    if ignore_cache:
+        print("  [Aviso] Ignorando cache de localização NSU conforme solicitado.")
+    nsu = locate_nsu_by_date(do_download, base_url, start_date, cnpj_label, env_choice, ignore_cache=ignore_cache)
 
     cert_label = pem_path if cert_type == "PEM" else a3_cert_info.get('subject', 'A3 Token')
     if cnpj_label:
