@@ -31,6 +31,12 @@ O script principal é responsável por se conectar à API do Ambiente de Dados N
 python src/download_nfse.py
 ```
 
+Você também pode utilizar o argumento opcional:
+```bash
+python src/download_nfse.py --ignorar-cache
+```
+- `--ignorar-cache`: Desconsidera o índice local de NSU (`cache_nsu/`) e reinicia a busca a partir do primeiro NSU disponível, garantindo a varredura completa.
+
 O script é guiado e interativo:
 1. **Tipo de Certificado:**
    - Digite `1` para Certificado A1 (arquivo `.pem`).
@@ -44,7 +50,7 @@ O script é guiado e interativo:
    - Data Inicial: formato `DD/MM/YYYY` (obrigatória).
    - Data Final: formato `DD/MM/YYYY` (opcional; se deixar em branco, utiliza a data atual).
 
-O NSU (Número Sequencial Único) é **localizado automaticamente** através de cache e busca binária rápida. Não é necessário informá-lo manualmente.
+O NSU (Número Sequencial Único) é **localizado automaticamente** através de cache e busca binária temporal. Não é necessário informá-lo manualmente.
 
 ---
 

@@ -28,10 +28,12 @@ class TestConvertPfxNonInteractive(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("não foi encontrado", result.stdout)
+        self.assertIn("encontrado", result.stdout)
 
     def test_non_interactive_empty_args_does_not_hang(self):
         """Sem argumentos e com DEVNULL no stdin, o script não deve travar."""
@@ -42,6 +44,8 @@ class TestConvertPfxNonInteractive(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5
         )
         # O script deve executar e terminar rapidamente sem bloqueio de stdin

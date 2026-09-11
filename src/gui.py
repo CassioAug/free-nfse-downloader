@@ -128,7 +128,7 @@ class App(_AppBase):
         self.setup_xml_pdf_tab()
         self.setup_about_tab()
 
-        self.log_box = ctk.CTkTextbox(self, height=200)
+        self.log_box = ctk.CTkTextbox(self, height=170)
         self.log_box.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="ew")
         self.log_box.configure(state="disabled")
 
@@ -290,56 +290,75 @@ class App(_AppBase):
 
         frame.grid_columnconfigure(1, weight=1)
 
+        # Description header
+        ctk.CTkLabel(
+            frame,
+            text="Consulta e download automatizado de NFS-e diretamente do Ambiente de Dados Nacional (ADN) com geração de DANFSE em PDF.",
+            text_color="gray",
+            wraplength=750,
+            justify="left"
+        ).grid(row=0, column=0, columnspan=3, padx=10, pady=(2, 6), sticky="w")
+
         # Certificate Type
         self.cert_type_var = tk.StringVar(value="1")
 
-        ctk.CTkLabel(frame, text="Tipo de Certificado:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Tipo de Certificado:").grid(row=1, column=0, padx=10, pady=4, sticky="w")
 
         radio_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        radio_frame.grid(row=0, column=1, columnspan=2, sticky="w")
+        radio_frame.grid(row=1, column=1, columnspan=2, sticky="w")
         self.rb_pem = ctk.CTkRadioButton(radio_frame, text="Arquivo PEM (A1)", variable=self.cert_type_var, value="1", command=self.update_download_ui)
         self.rb_pem.pack(side="left", padx=(0, 20))
         self.rb_a3 = ctk.CTkRadioButton(radio_frame, text="Token USB (A3)", variable=self.cert_type_var, value="2", command=self.update_download_ui)
         self.rb_a3.pack(side="left")
 
+        self.lbl_cert_desc = ctk.CTkLabel(frame, text="", text_color="gray", font=("", 11), wraplength=700, justify="left")
+        self.lbl_cert_desc.grid(row=2, column=1, columnspan=2, padx=10, pady=(0, 4), sticky="w")
+
         # Certificate Selection (PEM only or A3 index)
         self.lbl_cert = ctk.CTkLabel(frame, text="Certificado PEM:")
-        self.lbl_cert.grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        self.lbl_cert.grid(row=3, column=0, padx=10, pady=4, sticky="w")
 
         self.cert_entry = ctk.CTkEntry(frame, placeholder_text="Será buscado em ./certificados")
-        self.cert_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
+        self.cert_entry.grid(row=3, column=1, padx=10, pady=4, sticky="ew")
 
         # A3 Index
         self.lbl_a3_index = ctk.CTkLabel(frame, text="Índice do Token A3:")
         self.a3_index_entry = ctk.CTkEntry(frame, placeholder_text="1")
 
         # CNPJ
-        ctk.CTkLabel(frame, text="CNPJ (14 dígitos):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="CNPJ (14 dígitos):").grid(row=4, column=0, padx=10, pady=4, sticky="w")
         self.cnpj_entry = ctk.CTkEntry(frame, placeholder_text="Deixe vazio para automático")
-        self.cnpj_entry.grid(row=2, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.cnpj_entry.grid(row=4, column=1, columnspan=2, padx=10, pady=4, sticky="ew")
 
         # Start Date
-        ctk.CTkLabel(frame, text="Data Inicial (DD/MM/YYYY):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Data Inicial (DD/MM/YYYY):").grid(row=5, column=0, padx=10, pady=4, sticky="w")
         self.start_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 01/01/2026", width=180)
-        self.start_date_entry.grid(row=3, column=1, padx=10, pady=10, sticky="w")
+        self.start_date_entry.grid(row=5, column=1, padx=10, pady=4, sticky="w")
         self.start_date_entry.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.start_date_entry, e))
         self.start_date_entry.bind("<FocusOut>", lambda e: self._on_date_focus_out(self.start_date_entry, e))
 
         # End Date
-        ctk.CTkLabel(frame, text="Data Final (DD/MM/YYYY):").grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Data Final (DD/MM/YYYY):").grid(row=6, column=0, padx=10, pady=4, sticky="w")
         self.end_date_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 31/01/2026 (Deixe vazio para hoje)", width=280)
-        self.end_date_entry.grid(row=4, column=1, padx=10, pady=10, sticky="w")
+        self.end_date_entry.grid(row=6, column=1, padx=10, pady=4, sticky="w")
         self.end_date_entry.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.end_date_entry, e))
         self.end_date_entry.bind("<FocusOut>", lambda e: self._on_date_focus_out(self.end_date_entry, e))
 
         # Ignore NSU Cache Checkbox
         self.ignore_cache_var = tk.BooleanVar(value=False)
         self.chk_ignore_cache = ctk.CTkCheckBox(frame, text="Ignorar cache NSU (forçar busca ampla)", variable=self.ignore_cache_var)
-        self.chk_ignore_cache.grid(row=5, column=0, columnspan=2, padx=10, pady=(5, 10), sticky="w")
+        self.chk_ignore_cache.grid(row=7, column=0, columnspan=2, padx=10, pady=(4, 0), sticky="w")
+
+        ctk.CTkLabel(
+            frame,
+            text="Desconsidera o índice local de NSU e consulta a API desde o primeiro NSU disponível.",
+            text_color="gray",
+            font=("", 11)
+        ).grid(row=8, column=0, columnspan=2, padx=36, pady=(0, 6), sticky="w")
 
         # Start Button
         self.btn_start_download = ctk.CTkButton(frame, text="Iniciar Download", command=self.start_download)
-        self.btn_start_download.grid(row=6, column=0, columnspan=3, pady=15)
+        self.btn_start_download.grid(row=9, column=0, columnspan=3, pady=10)
 
         # We also need dummy buttons for other tabs so they can be disabled initially
         self.btn_convert_pfx = ctk.CTkButton(self.tab_convert_pfx, text="")
@@ -350,17 +369,19 @@ class App(_AppBase):
 
     def update_download_ui(self):
         if self.cert_type_var.get() == "1":
-            self.lbl_cert.grid(row=1, column=0, padx=10, pady=10, sticky="w")
-            self.cert_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
+            self.lbl_cert_desc.configure(text="Autenticação mTLS direta e rápida via certificados .pem salvos na pasta certificados/.")
+            self.lbl_cert.grid(row=3, column=0, padx=10, pady=4, sticky="w")
+            self.cert_entry.grid(row=3, column=1, padx=10, pady=4, sticky="ew")
 
             self.lbl_a3_index.grid_remove()
             self.a3_index_entry.grid_remove()
         else:
+            self.lbl_cert_desc.configure(text="Autenticação via token/cartão físico no Windows Certificate Store com navegador integrado.")
             self.lbl_cert.grid_remove()
             self.cert_entry.grid_remove()
 
-            self.lbl_a3_index.grid(row=1, column=0, padx=10, pady=10, sticky="w")
-            self.a3_index_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
+            self.lbl_a3_index.grid(row=3, column=0, padx=10, pady=4, sticky="w")
+            self.a3_index_entry.grid(row=3, column=1, padx=10, pady=4, sticky="ew")
 
     def start_download(self):
         cert_type = self.cert_type_var.get()
@@ -444,27 +465,36 @@ class App(_AppBase):
 
         frame.grid_columnconfigure(1, weight=1)
 
+        # Description header
+        ctk.CTkLabel(
+            frame,
+            text="Converte certificados digitais A1 (.pfx ou .p12) para arquivos .pem em ./certificados, formato necessário para autenticação mTLS.",
+            text_color="gray",
+            wraplength=750,
+            justify="left"
+        ).grid(row=0, column=0, columnspan=3, padx=10, pady=(5, 10), sticky="w")
+
         # PFX Path
-        ctk.CTkLabel(frame, text="Arquivo PFX/P12:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Arquivo PFX/P12:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
         self.pfx_entry = ctk.CTkEntry(frame, placeholder_text="Ex: ./certificados/meu_cert.pfx")
-        self.pfx_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        self.pfx_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_pfx = ctk.CTkButton(frame, text="Procurar...", command=self.browse_pfx)
-        self.btn_browse_pfx.grid(row=0, column=2, padx=10, pady=10)
+        self.btn_browse_pfx.grid(row=1, column=2, padx=10, pady=10)
 
         # Password
-        ctk.CTkLabel(frame, text="Senha do Certificado:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Senha do Certificado:").grid(row=2, column=0, padx=10, pady=10, sticky="w")
         self.pfx_pass_entry = ctk.CTkEntry(frame, show="*")
-        self.pfx_pass_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.pfx_pass_entry.grid(row=2, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # PEM Output Path (Optional)
-        ctk.CTkLabel(frame, text="Arquivo PEM (Saída):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Arquivo PEM (Saída):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
         self.pem_out_entry = ctk.CTkEntry(frame, placeholder_text="Opcional. Padrão: mesmo nome na pasta ./certificados")
-        self.pem_out_entry.grid(row=2, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.pem_out_entry.grid(row=3, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # Start Button
         self.btn_convert_pfx = ctk.CTkButton(frame, text="Converter PFX -> PEM", command=self.start_convert_pfx)
-        self.btn_convert_pfx.grid(row=3, column=0, columnspan=3, pady=20)
+        self.btn_convert_pfx.grid(row=4, column=0, columnspan=3, pady=20)
 
     def browse_pfx(self):
         filename = filedialog.askopenfilename(title="Selecione o arquivo PFX/P12", filetypes=(("PFX/P12 files", "*.pfx *.p12"), ("All files", "*.*")))
@@ -500,22 +530,31 @@ class App(_AppBase):
 
         frame.grid_columnconfigure(1, weight=1)
 
+        # Description header
+        ctk.CTkLabel(
+            frame,
+            text="Classifica arquivos XML locais em subpastas 'prestados' e 'tomados' comparando o CNPJ da empresa com os participantes da nota.",
+            text_color="gray",
+            wraplength=750,
+            justify="left"
+        ).grid(row=0, column=0, columnspan=3, padx=10, pady=(5, 10), sticky="w")
+
         # XML Directory
-        ctk.CTkLabel(frame, text="Pasta dos XMLs:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Pasta dos XMLs:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
         self.org_dir_entry = ctk.CTkEntry(frame, placeholder_text="Ex: ./notas_fiscais/12345678000199")
-        self.org_dir_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        self.org_dir_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_org = ctk.CTkButton(frame, text="Procurar...", command=self.browse_org)
-        self.btn_browse_org.grid(row=0, column=2, padx=10, pady=10)
+        self.btn_browse_org.grid(row=1, column=2, padx=10, pady=10)
 
         # CNPJ
-        ctk.CTkLabel(frame, text="CNPJ (14 dígitos):").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="CNPJ (14 dígitos):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
         self.org_cnpj_entry = ctk.CTkEntry(frame, placeholder_text="Apenas números")
-        self.org_cnpj_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.org_cnpj_entry.grid(row=2, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # Start Button
         self.btn_organize = ctk.CTkButton(frame, text="Organizar Notas", command=self.start_organize)
-        self.btn_organize.grid(row=2, column=0, columnspan=3, pady=20)
+        self.btn_organize.grid(row=3, column=0, columnspan=3, pady=20)
 
     def browse_org(self):
         directory = filedialog.askdirectory(title="Selecione a pasta dos XMLs")
@@ -544,30 +583,39 @@ class App(_AppBase):
 
         frame.grid_columnconfigure(1, weight=1)
 
+        # Description header
+        ctk.CTkLabel(
+            frame,
+            text="Converte arquivos XML de NFS-e salvos no disco em relatórios visuais DANFSE (PDF) em lote, sem consultar a internet.",
+            text_color="gray",
+            wraplength=750,
+            justify="left"
+        ).grid(row=0, column=0, columnspan=3, padx=10, pady=(5, 10), sticky="w")
+
         # Input Path (File or Directory)
-        ctk.CTkLabel(frame, text="XML ou Pasta:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="XML ou Pasta:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
         self.xml_input_entry = ctk.CTkEntry(frame, placeholder_text="Ex: ./notas_fiscais")
-        self.xml_input_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        self.xml_input_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_xml = ctk.CTkButton(frame, text="Procurar...", command=self.browse_xml)
-        self.btn_browse_xml.grid(row=0, column=2, padx=10, pady=10)
+        self.btn_browse_xml.grid(row=1, column=2, padx=10, pady=10)
 
         # Output Path (Optional)
-        ctk.CTkLabel(frame, text="Pasta Destino (Opcional):").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        ctk.CTkLabel(frame, text="Pasta Destino (Opcional):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
         self.pdf_out_entry = ctk.CTkEntry(frame, placeholder_text="Deixe vazio para mesma pasta do XML")
-        self.pdf_out_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
+        self.pdf_out_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_pdf_out = ctk.CTkButton(frame, text="Procurar...", command=self.browse_pdf_out)
-        self.btn_browse_pdf_out.grid(row=1, column=2, padx=10, pady=10)
+        self.btn_browse_pdf_out.grid(row=2, column=2, padx=10, pady=10)
 
         # Force overwrite
         self.force_var = tk.BooleanVar(value=False)
         self.chk_force = ctk.CTkCheckBox(frame, text="Forçar conversão (Sobrescrever PDFs existentes)", variable=self.force_var)
-        self.chk_force.grid(row=2, column=1, columnspan=2, padx=10, pady=10, sticky="w")
+        self.chk_force.grid(row=3, column=1, columnspan=2, padx=10, pady=10, sticky="w")
 
         # Start Button
         self.btn_convert_xml = ctk.CTkButton(frame, text="Converter XML -> PDF", command=self.start_convert_xml)
-        self.btn_convert_xml.grid(row=3, column=0, columnspan=3, pady=20)
+        self.btn_convert_xml.grid(row=4, column=0, columnspan=3, pady=20)
 
     def browse_xml(self):
         path = filedialog.askopenfilename(title="Selecione o XML", filetypes=(("XML files", "*.xml"), ("All files", "*.*")))
