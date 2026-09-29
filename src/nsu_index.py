@@ -52,6 +52,12 @@ try:
 except Exception:
     NSU_CACHE_DIR = "./cache_nsu"
 
+try:
+    import database
+    HAS_DATABASE = True
+except Exception:
+    HAS_DATABASE = False
+
 NSU_INDEX_STEP = 100
 
 
@@ -131,6 +137,17 @@ def _nsu_index_path(cnpj, env_choice):
 def load_nsu_index(cnpj, env_choice):
     if not cnpj:
         return {}
+
+    # 1. Tenta carregar do SQLite
+    if HAS_DATABASE:
+        try:
+            db_index = database.load_nsu_index(cnpj, env_choice)
+            if db_index:
+                return db_index
+        except Exception as e:
+            logger.debug(f"Erro ao ler índice NSU do SQLite: {e}")
+
+    # 2. Fallback: lê arquivo JSON e migra para SQLite
     path = _nsu_index_path(cnpj, env_choice)
     if not os.path.exists(path):
         return {}
@@ -139,7 +156,14 @@ def load_nsu_index(cnpj, env_choice):
             data = json.load(f)
         index = {}
         for nsu_str, date_str in data.items():
-            index[int(nsu_str)] = date.fromisoformat(date_str)
+            dt = date.fromisoformat(date_str)
+            nsu_int = int(nsu_str)
+            index[nsu_int] = dt
+            if HAS_DATABASE:
+                try:
+                    database.save_nsu_index_entry(cnpj, env_choice, nsu_int, dt)
+                except Exception:
+                    pass
         return index
     except Exception:
         return {}
@@ -148,6 +172,15 @@ def load_nsu_index(cnpj, env_choice):
 def save_nsu_index_entry(cnpj, env_choice, nsu_val, emission_date):
     if not cnpj or not nsu_val or not emission_date:
         return
+
+    # 1. Salva no SQLite
+    if HAS_DATABASE:
+        try:
+            database.save_nsu_index_entry(cnpj, env_choice, nsu_val, emission_date)
+        except Exception as e:
+            logger.debug(f"Erro ao salvar índice NSU no SQLite: {e}")
+
+    # 2. Mantém arquivo JSON como backup/compatibilidade
     os.makedirs(NSU_CACHE_DIR, exist_ok=True)
     path = _nsu_index_path(cnpj, env_choice)
     index = {}
@@ -158,7 +191,7 @@ def save_nsu_index_entry(cnpj, env_choice, nsu_val, emission_date):
         except Exception:
             index = {}
     nsu_key = str(nsu_val)
-    date_str = emission_date.isoformat()
+    date_str = emission_date.isoformat() if hasattr(emission_date, "isoformat") else str(emission_date)
     if index.get(nsu_key) != date_str:
         index[nsu_key] = date_str
         try:

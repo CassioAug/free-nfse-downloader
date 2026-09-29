@@ -24,3 +24,10 @@ env/
 
 # Cache de localização automática de NSU
 cache_nsu/
+
+# Banco de dados local SQLite
+dados/*
+!dados/.gitkeep
+*.db
+*.db-wal
+*.db-shm

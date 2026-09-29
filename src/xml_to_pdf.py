@@ -43,6 +43,12 @@ except ImportError as e:
     print(f"Erro ao importar dependências do download_nfse.py: {e}")
     sys.exit(1)
 
+try:
+    import database
+    HAS_DATABASE = True
+except Exception:
+    HAS_DATABASE = False
+
 def convert_single_xml(xml_path, output_dir=None, overwrite=False):
     """Converte um único arquivo XML para PDF"""
     if not os.path.isfile(xml_path):
@@ -59,6 +65,11 @@ def convert_single_xml(xml_path, output_dir=None, overwrite=False):
 
     if os.path.exists(pdf_path) and not overwrite:
         print(f"  [PULADO] PDF já existe: {os.path.basename(pdf_path)}")
+        if HAS_DATABASE:
+            try:
+                database.update_nota_paths(caminho_xml=os.path.abspath(xml_path), caminho_pdf=os.path.abspath(pdf_path))
+            except Exception:
+                pass
         return True
 
     try:
@@ -68,6 +79,19 @@ def convert_single_xml(xml_path, output_dir=None, overwrite=False):
         danfse = CustomDanfse(xml=xml_content)
         danfse.output(pdf_path)
         print(f"  [SUCESSO] PDF gerado: {os.path.basename(pdf_path)}")
+
+        if HAS_DATABASE:
+            try:
+                meta = database.extract_nota_metadata(xml_content)
+                if meta:
+                    meta["caminho_xml"] = os.path.abspath(xml_path)
+                    meta["caminho_pdf"] = os.path.abspath(pdf_path)
+                    database.upsert_nota_fiscal(meta)
+                else:
+                    database.update_nota_paths(caminho_xml=os.path.abspath(xml_path), caminho_pdf=os.path.abspath(pdf_path))
+            except Exception:
+                pass
+
         return True
     except Exception as e:
         print(f"  [ERRO] Falha ao converter '{os.path.basename(xml_path)}': {e}")

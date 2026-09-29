@@ -35,11 +35,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Pastas padrão do projeto na raiz
 CERT_DIR = os.path.join(BASE_DIR, "certificados")
 NOTAS_DIR = os.path.join(BASE_DIR, "notas_fiscais")
+DADOS_DIR = os.path.join(BASE_DIR, "dados")
+DB_PATH = os.path.join(DADOS_DIR, "nfse.db")
 
 
 def ensure_directories(base_dir=None, verbose=False):
     """
-    Verifica se as pastas essenciais ('certificados' e 'notas_fiscais')
+    Verifica se as pastas essenciais ('certificados', 'notas_fiscais', 'dados')
     existem e as cria caso ainda não existam.
     
     Args:
@@ -48,17 +50,19 @@ def ensure_directories(base_dir=None, verbose=False):
         verbose (bool): Se True, imprime mensagem ao criar diretórios.
         
     Returns:
-        tuple: (caminho_certificados, caminho_notas_fiscais)
+        tuple: (caminho_certificados, caminho_notas_fiscais, caminho_dados)
     """
     if base_dir is None:
         base_dir = BASE_DIR
 
     cert_path = os.path.join(base_dir, "certificados")
     notas_path = os.path.join(base_dir, "notas_fiscais")
+    dados_path = os.path.join(base_dir, "dados")
 
     dirs_to_create = [
         ("certificados", cert_path),
         ("notas_fiscais", notas_path),
+        ("dados", dados_path),
     ]
 
     for name, path in dirs_to_create:
@@ -67,7 +71,7 @@ def ensure_directories(base_dir=None, verbose=False):
             if verbose:
                 print(f"[setup_dirs] Pasta '{name}' criada em: {path}")
 
-    return cert_path, notas_path
+    return cert_path, notas_path, dados_path
 
 
 # Garante automaticamente a criação das pastas ao importar o módulo
@@ -76,7 +80,8 @@ ensure_directories()
 
 if __name__ == "__main__":
     print("Verificando e configurando pastas padrão...")
-    c_dir, n_dir = ensure_directories(verbose=True)
+    c_dir, n_dir, d_dir = ensure_directories(verbose=True)
     print("Pastas configuradas com sucesso:")
     print(f"  - Certificados:  {c_dir}")
     print(f"  - Notas Fiscais: {n_dir}")
+    print(f"  - Dados (DB):    {d_dir}")

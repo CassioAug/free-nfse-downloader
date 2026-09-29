@@ -34,6 +34,7 @@ import time
 import atexit
 from datetime import datetime, date, timedelta
 import setup_dirs
+import database
 from organize_nfse import get_service_type
 from nsu_index import locate_nsu_by_date, save_nsu_index_entry, save_nsu_location_cache
 
@@ -701,6 +702,7 @@ def main():
                         with open(xml_file_path, "w", encoding="utf-8") as f:
                             f.write(xml_content)
                             
+                        pdf_file_path = None
                         if HAS_DANFSE_LIB:
                             pdf_file_path = os.path.join(tipo_dir, f"{file_base}.pdf")
                             try:
@@ -709,8 +711,23 @@ def main():
                                 logger.info(f"    -> XML e DANF (PDF) salvos.")
                             except Exception as e:
                                 logger.error(f"    -> XML salvo. Erro ao gerar DANF PDF: {e}")
+                                pdf_file_path = None
                         else:
                             logger.warning(f"    -> XML salvo. (PDF não gerado - biblioteca ausente)")
+
+                        # Salva / Atualiza metadados no SQLite
+                        try:
+                            meta = database.extract_nota_metadata(xml_content, cnpj_consultado=cnpj_label)
+                            if meta:
+                                meta["caminho_xml"] = os.path.abspath(xml_file_path)
+                                if pdf_file_path and os.path.isfile(pdf_file_path):
+                                    meta["caminho_pdf"] = os.path.abspath(pdf_file_path)
+                                meta["nsu"] = nsu_item
+                                if tipo_servico:
+                                    meta["tipo"] = tipo_servico
+                                database.upsert_nota_fiscal(meta)
+                        except Exception as db_err:
+                            logger.debug(f"    -> Aviso: Erro ao persistir metadados no banco de dados: {db_err}")
                             
                         downloaded_count += 1
                         
@@ -758,6 +775,22 @@ def main():
 
     logger.info("-" * 60)
     logger.info(f"Processo finalizado. Total de notas baixadas no período: {downloaded_count}")
+
+    # Registra histórico de sincronização no banco de dados
+    if cnpj_label and env_choice:
+        try:
+            database.record_sync_history(
+                cnpj=cnpj_label,
+                ambiente=env_choice,
+                start_date=start_date,
+                end_date=end_date,
+                nsu_ini=first_nsu_in_period or nsu,
+                nsu_fim=nsu,
+                total=downloaded_count,
+                status="sucesso"
+            )
+        except Exception as e:
+            logger.debug(f"Erro ao registrar histórico de sincronização no banco: {e}")
 
     # Salva cache NSU->data para localização futura sem busca
     if first_nsu_in_period and cnpj_label and env_choice:

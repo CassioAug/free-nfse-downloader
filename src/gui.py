@@ -81,9 +81,17 @@ def format_date_text(text, is_backspace=False):
         else:
             return f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
 
+import csv
+from datetime import datetime
+try:
+    import database
+    HAS_DATABASE = True
+except Exception:
+    HAS_DATABASE = False
+
 try:
     import tkinter as tk
-    from tkinter import filedialog, messagebox
+    from tkinter import filedialog, messagebox, ttk
     import customtkinter as ctk
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
@@ -91,7 +99,7 @@ try:
     _ToplevelBase = ctk.CTkToplevel
 except Exception:
     tk = None
-    filedialog = messagebox = ctk = None
+    filedialog = messagebox = ctk = ttk = None
     _AppBase = object
     _ToplevelBase = object
 
@@ -120,12 +128,14 @@ class App(_AppBase):
         self.tab_convert_pfx = self.tabview.add("Converter PFX/P12")
         self.tab_organize = self.tabview.add("Organizar NFS-e")
         self.tab_xml_pdf = self.tabview.add("XML para PDF")
+        self.tab_database = self.tabview.add("Banco de Dados")
         self.tab_about = self.tabview.add("Sobre")
 
         self.setup_download_tab()
         self.setup_convert_pfx_tab()
         self.setup_organize_tab()
         self.setup_xml_pdf_tab()
+        self.setup_database_tab()
         self.setup_about_tab()
 
         self.log_box = ctk.CTkTextbox(self, height=170)
@@ -649,6 +659,362 @@ class App(_AppBase):
 
         self.log_box.delete("0.0", "end")
         self.run_command(cmd, "Conversão Finalizada.", "Erro na Conversão.")
+
+    def setup_database_tab(self):
+        """Aba de Consulta, Métricas Financeiras e Gerenciamento do Banco SQLite"""
+        self.tab_database.grid_columnconfigure(0, weight=1)
+        self.tab_database.grid_rowconfigure(2, weight=1)
+
+        # 1. Painel de Filtros
+        filter_frame = ctk.CTkFrame(self.tab_database)
+        filter_frame.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
+        filter_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+
+        # Linha 1 de filtros
+        ctk.CTkLabel(filter_frame, text="CNPJ:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_cnpj = ctk.CTkEntry(filter_frame, placeholder_text="14 dígitos (opcional)", width=140)
+        self.db_filter_cnpj.grid(row=1, column=0, padx=5, pady=(0, 5), sticky="ew")
+
+        ctk.CTkLabel(filter_frame, text="Tipo:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=1, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_tipo = ctk.CTkOptionMenu(filter_frame, values=["Todos", "prestado", "tomado"], width=110)
+        self.db_filter_tipo.grid(row=1, column=1, padx=5, pady=(0, 5), sticky="ew")
+
+        ctk.CTkLabel(filter_frame, text="Data Inicial:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=2, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_dini = ctk.CTkEntry(filter_frame, placeholder_text="DD/MM/YYYY", width=110)
+        self.db_filter_dini.grid(row=1, column=2, padx=5, pady=(0, 5), sticky="ew")
+        self.db_filter_dini.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.db_filter_dini, e))
+
+        ctk.CTkLabel(filter_frame, text="Data Final:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=3, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_dfim = ctk.CTkEntry(filter_frame, placeholder_text="DD/MM/YYYY", width=110)
+        self.db_filter_dfim.grid(row=1, column=3, padx=5, pady=(0, 5), sticky="ew")
+        self.db_filter_dfim.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.db_filter_dfim, e))
+
+        ctk.CTkLabel(filter_frame, text="Busca / Texto:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=4, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_search = ctk.CTkEntry(filter_frame, placeholder_text="Número, Nome, CNPJ...", width=160)
+        self.db_filter_search.grid(row=1, column=4, padx=5, pady=(0, 5), sticky="ew")
+        self.db_filter_search.bind("<Return>", lambda e: self.refresh_database_view())
+
+        # Botões de Ação do Filtro
+        btn_filter_frame = ctk.CTkFrame(filter_frame, fg_color="transparent")
+        btn_filter_frame.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 6), sticky="e")
+
+        self.btn_db_filter = ctk.CTkButton(btn_filter_frame, text="🔎 Filtrar", width=90, height=28, command=self.refresh_database_view)
+        self.btn_db_filter.pack(side="right", padx=5)
+
+        self.btn_db_clear = ctk.CTkButton(
+            btn_filter_frame, text="🧹 Limpar", width=80, height=28,
+            fg_color=("gray75", "gray25"), text_color=("black", "white"),
+            command=self._clear_db_filters
+        )
+        self.btn_db_clear.pack(side="right", padx=5)
+
+        # 2. Card de Resumo Financeiro
+        self.summary_frame = ctk.CTkFrame(self.tab_database, fg_color=("gray88", "gray18"), corner_radius=6)
+        self.summary_frame.grid(row=1, column=0, padx=10, pady=(2, 5), sticky="ew")
+
+        self.lbl_summary_text = ctk.CTkLabel(
+            self.summary_frame,
+            text="Carregando resumo financeiro...",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            justify="center"
+        )
+        self.lbl_summary_text.pack(padx=10, pady=6)
+
+        # 3. Tabela de Registros (Treeview)
+        table_container = ctk.CTkFrame(self.tab_database)
+        table_container.grid(row=2, column=0, padx=10, pady=5, sticky="nsew")
+        table_container.grid_columnconfigure(0, weight=1)
+        table_container.grid_rowconfigure(0, weight=1)
+
+        columns = ("emissao", "numero", "tipo", "prestador", "tomador", "valor", "iss", "xml", "pdf")
+        self.tree_notas = ttk.Treeview(table_container, columns=columns, show="headings", selectmode="browse", height=10)
+
+        self.tree_notas.heading("emissao", text="Emissão")
+        self.tree_notas.heading("numero", text="Número")
+        self.tree_notas.heading("tipo", text="Tipo")
+        self.tree_notas.heading("prestador", text="Prestador")
+        self.tree_notas.heading("tomador", text="Tomador")
+        self.tree_notas.heading("valor", text="Valor (R$)")
+        self.tree_notas.heading("iss", text="ISS (R$)")
+        self.tree_notas.heading("xml", text="XML")
+        self.tree_notas.heading("pdf", text="PDF")
+
+        self.tree_notas.column("emissao", width=85, anchor="center")
+        self.tree_notas.column("numero", width=75, anchor="center")
+        self.tree_notas.column("tipo", width=70, anchor="center")
+        self.tree_notas.column("prestador", width=170, anchor="w")
+        self.tree_notas.column("tomador", width=170, anchor="w")
+        self.tree_notas.column("valor", width=85, anchor="e")
+        self.tree_notas.column("iss", width=75, anchor="e")
+        self.tree_notas.column("xml", width=45, anchor="center")
+        self.tree_notas.column("pdf", width=45, anchor="center")
+
+        tree_scroll_y = ttk.Scrollbar(table_container, orient="vertical", command=self.tree_notas.yview)
+        self.tree_notas.configure(yscrollcommand=tree_scroll_y.set)
+
+        self.tree_notas.grid(row=0, column=0, sticky="nsew")
+        tree_scroll_y.grid(row=0, column=1, sticky="ns")
+
+        self.tree_notas.bind("<Double-1>", lambda e: self.open_selected_pdf())
+
+        # 4. Barra de Ações Inferior
+        actions_bar = ctk.CTkFrame(self.tab_database, fg_color="transparent")
+        actions_bar.grid(row=3, column=0, padx=10, pady=(5, 10), sticky="ew")
+
+        self.btn_open_xml = ctk.CTkButton(actions_bar, text="📄 Abrir XML", width=100, height=32, command=self.open_selected_xml)
+        self.btn_open_xml.pack(side="left", padx=(0, 8))
+
+        self.btn_open_pdf = ctk.CTkButton(actions_bar, text="📑 Abrir DANFSE (PDF)", width=140, height=32, command=self.open_selected_pdf)
+        self.btn_open_pdf.pack(side="left", padx=(0, 8))
+
+        self.btn_export_csv = ctk.CTkButton(
+            actions_bar, text="📊 Exportar CSV", width=110, height=32,
+            fg_color="#17a2b8", hover_color="#138496",
+            command=self.export_database_csv
+        )
+        self.btn_export_csv.pack(side="left", padx=(0, 8))
+
+        self.btn_sync_db = ctk.CTkButton(
+            actions_bar, text="🔄 Importar / Sincronizar Arquivos Locais", width=220, height=32,
+            fg_color="#28a745", hover_color="#218838",
+            command=self.sync_local_files_to_db
+        )
+        self.btn_sync_db.pack(side="right", padx=0)
+
+        # Mapa de dados em memória para a tabela {item_id: nota_dict}
+        self._table_records = {}
+
+        # Carrega os dados iniciais
+        self.after(500, self.refresh_database_view)
+
+    def _clear_db_filters(self):
+        self.db_filter_cnpj.delete(0, tk.END)
+        self.db_filter_tipo.set("Todos")
+        self.db_filter_dini.delete(0, tk.END)
+        self.db_filter_dfim.delete(0, tk.END)
+        self.db_filter_search.delete(0, tk.END)
+        self.refresh_database_view()
+
+    def refresh_database_view(self):
+        if not HAS_DATABASE or not hasattr(self, "tree_notas"):
+            return
+
+        cnpj = self.db_filter_cnpj.get().strip()
+        tipo_val = self.db_filter_tipo.get().strip()
+        tipo = None if tipo_val == "Todos" else tipo_val
+
+        # Datas
+        dini_str = self.db_filter_dini.get().strip()
+        dfim_str = self.db_filter_dfim.get().strip()
+        start_date = None
+        end_date = None
+        if len(re.sub(r'\D', '', dini_str)) == 8:
+            try:
+                start_date = datetime.strptime(dini_str, "%d/%m/%Y").date()
+            except Exception:
+                pass
+        if len(re.sub(r'\D', '', dfim_str)) == 8:
+            try:
+                end_date = datetime.strptime(dfim_str, "%d/%m/%Y").date()
+            except Exception:
+                pass
+
+        search = self.db_filter_search.get().strip() or None
+
+        # Limpa tabela
+        for item in self.tree_notas.get_children():
+            self.tree_notas.delete(item)
+        self._table_records.clear()
+
+        # Consulta resumo financeiro
+        try:
+            summary = database.get_financial_summary(cnpj=cnpj or None, start_date=start_date, end_date=end_date)
+            total_notas = summary.get("total_notas", 0) or 0
+            fat = summary.get("total_faturado", 0.0) or 0.0
+            tom = summary.get("total_tomado_servico", 0.0) or 0.0
+            iss = summary.get("total_iss", 0.0) or 0.0
+
+            text_sum = (
+                f"Total de Notas: {total_notas}  |  "
+                f"Faturado (Prestadas): R$ {fat:,.2f}  |  "
+                f"Tomado: R$ {tom:,.2f}  |  "
+                f"Total ISS: R$ {iss:,.2f}"
+            ).replace(",", "X").replace(".", ",").replace("X", ".")
+            self.lbl_summary_text.configure(text=text_sum)
+        except Exception as e:
+            self.lbl_summary_text.configure(text=f"Erro ao calcular resumo: {e}")
+
+        # Consulta registros
+        try:
+            notas = database.query_notas(cnpj=cnpj or None, tipo=tipo, start_date=start_date, end_date=end_date, search_text=search, limit=500)
+            for n in notas:
+                dt_str = ""
+                if n.get("data_emissao"):
+                    try:
+                        dt_obj = datetime.strptime(n["data_emissao"], "%Y-%m-%d")
+                        dt_str = dt_obj.strftime("%d/%m/%Y")
+                    except Exception:
+                        dt_str = n["data_emissao"]
+
+                val_serv = f"R$ {n.get('valor_servico', 0.0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                val_iss = f"R$ {n.get('valor_iss', 0.0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                tem_xml = "SIM" if n.get("caminho_xml") and os.path.isfile(n["caminho_xml"]) else "NÃO"
+                tem_pdf = "SIM" if n.get("caminho_pdf") and os.path.isfile(n["caminho_pdf"]) else "NÃO"
+
+                item_id = self.tree_notas.insert("", "end", values=(
+                    dt_str,
+                    n.get("numero_nfse") or "-",
+                    (n.get("tipo") or "-").capitalize(),
+                    n.get("prestador_nome") or n.get("prestador_cnpj_cpf") or "-",
+                    n.get("tomador_nome") or n.get("tomador_cnpj_cpf") or "-",
+                    val_serv,
+                    val_iss,
+                    tem_xml,
+                    tem_pdf
+                ))
+                self._table_records[item_id] = n
+        except Exception as e:
+            self.log(f"Erro ao consultar banco de dados: {e}")
+
+    def _get_selected_nota(self):
+        sel = self.tree_notas.selection()
+        if not sel:
+            messagebox.showwarning("Seleção", "Por favor, selecione uma nota na tabela.")
+            return None
+        return self._table_records.get(sel[0])
+
+    def open_selected_xml(self):
+        nota = self._get_selected_nota()
+        if not nota:
+            return
+        caminho = nota.get("caminho_xml")
+        if caminho and os.path.isfile(caminho):
+            self._open_file(caminho)
+        else:
+            messagebox.showwarning("Arquivo Não Encontrado", f"O arquivo XML desta nota não foi encontrado em:\n{caminho or 'Nenhum caminho registrado'}")
+
+    def open_selected_pdf(self):
+        nota = self._get_selected_nota()
+        if not nota:
+            return
+        caminho_pdf = nota.get("caminho_pdf")
+        if caminho_pdf and os.path.isfile(caminho_pdf):
+            self._open_file(caminho_pdf)
+            return
+
+        caminho_xml = nota.get("caminho_xml")
+        if caminho_xml and os.path.isfile(caminho_xml):
+            # Tenta gerar o PDF sob demanda
+            try:
+                from xml_to_pdf import convert_single_xml
+                if convert_single_xml(caminho_xml, overwrite=True):
+                    base_pdf = os.path.splitext(caminho_xml)[0] + ".pdf"
+                    if os.path.isfile(base_pdf):
+                        self.refresh_database_view()
+                        self._open_file(base_pdf)
+                        return
+            except Exception as e:
+                messagebox.showerror("Erro ao Gerar PDF", f"Falha ao gerar DANFSE PDF: {e}")
+                return
+
+        messagebox.showwarning("PDF Não Encontrado", "O arquivo PDF correspondente não foi encontrado.")
+
+    def _open_file(self, file_path):
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(os.path.abspath(file_path))
+            elif sys.platform.startswith("darwin"):
+                subprocess.Popen(["open", os.path.abspath(file_path)])
+            else:
+                subprocess.Popen(["xdg-open", os.path.abspath(file_path)])
+        except Exception as e:
+            messagebox.showerror("Erro ao Abrir", f"Não foi possível abrir o arquivo: {e}")
+
+    def export_database_csv(self):
+        if not HAS_DATABASE:
+            return
+
+        path = filedialog.asksaveasfilename(
+            title="Salvar Relatório de Notas (CSV)",
+            defaultextension=".csv",
+            filetypes=(("CSV files", "*.csv"), ("All files", "*.*"))
+        )
+        if not path:
+            return
+
+        try:
+            # Obtém todos os registros da busca atual
+            cnpj = self.db_filter_cnpj.get().strip() or None
+            tipo_val = self.db_filter_tipo.get().strip()
+            tipo = None if tipo_val == "Todos" else tipo_val
+            dini_str = self.db_filter_dini.get().strip()
+            dfim_str = self.db_filter_dfim.get().strip()
+            start_date = None
+            end_date = None
+            if len(re.sub(r'\D', '', dini_str)) == 8:
+                start_date = datetime.strptime(dini_str, "%d/%m/%Y").date()
+            if len(re.sub(r'\D', '', dfim_str)) == 8:
+                end_date = datetime.strptime(dfim_str, "%d/%m/%Y").date()
+            search = self.db_filter_search.get().strip() or None
+
+            notas = database.query_notas(cnpj=cnpj, tipo=tipo, start_date=start_date, end_date=end_date, search_text=search, limit=10000)
+
+            if not notas:
+                messagebox.showinfo("Exportar CSV", "Nenhuma nota encontrada com os filtros atuais.")
+                return
+
+            fieldnames = [
+                "chave_acesso", "numero_nfse", "serie", "tipo", "status",
+                "data_emissao", "data_competencia", "nsu", "cnpj_consultado",
+                "prestador_cnpj_cpf", "prestador_nome", "prestador_im", "prestador_municipio",
+                "tomador_cnpj_cpf", "tomador_nome", "tomador_im", "tomador_municipio",
+                "valor_servico", "valor_liquido", "valor_iss", "iss_retido", "aliquota_iss",
+                "valor_pis", "valor_cofins", "valor_inss", "valor_ir", "valor_csll",
+                "codigo_tributacao_nacional", "discriminacao_servico", "caminho_xml", "caminho_pdf"
+            ]
+
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=";", extrasaction="ignore")
+                writer.writeheader()
+                for n in notas:
+                    writer.writerow(n)
+
+            messagebox.showinfo("Exportação Concluída", f"Relatório exportado com sucesso com {len(notas)} nota(s)!\nArquivo salvo em:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Erro ao Exportar", f"Falha ao exportar arquivo CSV: {e}")
+
+    def sync_local_files_to_db(self):
+        if not HAS_DATABASE:
+            return
+
+        self.btn_sync_db.configure(state="disabled", text="⏳ Sincronizando...")
+        self.log("\n[Banco de Dados] Iniciando varredura e sincronização de arquivos locais...")
+
+        def worker():
+            try:
+                stats = database.import_existing_data(verbose=False)
+                self.after(0, lambda: self._on_sync_db_done(stats))
+            except Exception as e:
+                self.after(0, lambda: self._on_sync_db_error(str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_sync_db_done(self, stats):
+        self.btn_sync_db.configure(state="normal", text="🔄 Importar / Sincronizar Arquivos Locais")
+        msg = (
+            f"Sincronização concluída!\n"
+            f"  - XMLs processados/atualizados: {stats.get('xmls_importados', 0)}\n"
+            f"  - Entradas NSU indexadas: {stats.get('nsu_index_importados', 0)}\n"
+            f"  - Erros encontrados: {stats.get('erros', 0)}"
+        )
+        self.log(f"\n[Banco de Dados] {msg}")
+        self.refresh_database_view()
+        messagebox.showinfo("Sincronização do Banco de Dados", msg)
+
+    def _on_sync_db_error(self, err_msg):
+        self.btn_sync_db.configure(state="normal", text="🔄 Importar / Sincronizar Arquivos Locais")
+        self.log(f"\n[Banco de Dados] [ERRO] {err_msg}")
+        messagebox.showerror("Erro na Sincronização", f"Erro ao sincronizar arquivos locais com o banco:\n{err_msg}")
 
     def setup_about_tab(self):
         frame = ctk.CTkFrame(self.tab_about)

@@ -40,6 +40,12 @@ import shutil
 import logging
 import xml.etree.ElementTree as ET
 
+try:
+    import database
+    HAS_DATABASE = True
+except Exception:
+    HAS_DATABASE = False
+
 logger = logging.getLogger("free_nfse_downloader")
 
 NON_DIGITS = re.compile(r'\D')
@@ -159,18 +165,53 @@ def organize_directory(directory, cnpj_label):
             continue
 
         tipo = get_service_type(xml_str, cnpj_label)
+        target_xml_path = None
+        target_pdf_path = None
+
+        # Verifica se há PDF associado na mesma pasta de origem
+        pdf_orig_name = os.path.splitext(fname)[0] + ".pdf"
+        pdf_orig_path = os.path.join(directory, pdf_orig_name)
 
         if tipo == 'prestado':
-            shutil.move(fpath, os.path.join(prestados_dir, fname))
+            dest_xml = os.path.join(prestados_dir, fname)
+            shutil.move(fpath, dest_xml)
+            target_xml_path = dest_xml
+            if os.path.isfile(pdf_orig_path):
+                dest_pdf = os.path.join(prestados_dir, pdf_orig_name)
+                shutil.move(pdf_orig_path, dest_pdf)
+                target_pdf_path = dest_pdf
             prestados += 1
             logger.info(f"  {fname} -> prestados/")
         elif tipo == 'tomado':
-            shutil.move(fpath, os.path.join(tomados_dir, fname))
+            dest_xml = os.path.join(tomados_dir, fname)
+            shutil.move(fpath, dest_xml)
+            target_xml_path = dest_xml
+            if os.path.isfile(pdf_orig_path):
+                dest_pdf = os.path.join(tomados_dir, pdf_orig_name)
+                shutil.move(pdf_orig_path, dest_pdf)
+                target_pdf_path = dest_pdf
             tomados += 1
             logger.info(f"  {fname} -> tomados/")
         else:
             indeterminados += 1
             logger.warning(f"  {fname} -> indeterminado (mantido na raiz)")
+
+        # Atualiza ou insere metadados no SQLite
+        if HAS_DATABASE:
+            try:
+                meta = database.extract_nota_metadata(xml_str, cnpj_consultado=cnpj_label)
+                if meta:
+                    if target_xml_path:
+                        meta["caminho_xml"] = os.path.abspath(target_xml_path)
+                    else:
+                        meta["caminho_xml"] = os.path.abspath(fpath)
+                    if target_pdf_path:
+                        meta["caminho_pdf"] = os.path.abspath(target_pdf_path)
+                    if tipo:
+                        meta["tipo"] = tipo
+                    database.upsert_nota_fiscal(meta)
+            except Exception as db_e:
+                logger.debug(f"Erro ao salvar no banco ao organizar: {db_e}")
 
     total = prestados + tomados + indeterminados + erros
     logger.info(f"Organização concluída: {prestados} prestados, {tomados} tomados, "

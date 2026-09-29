@@ -1,4 +1,4 @@
-# Free NFS-e Downloader (v2.3.1)
+# Free NFS-e Downloader (v2.4.0)
 
 [![CI](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CassioAug/free-nfse-downloader?color=blue)](https://github.com/CassioAug/free-nfse-downloader/releases)
@@ -19,6 +19,8 @@ O sistema obtém os arquivos **XML** oficiais diretamente da API governamental e
 ## Recursos Principais
 
 - **Download Automatizado via ADN:** Conexão direta com o endpoint de distribuição DFe da Receita Federal (`/contribuintes/DFe/{NSU}`).
+- **Banco de Dados SQLite Integrado:** Armazena e indexa todos os metadados fiscais, valores de serviços e impostos retidos localmente de forma rápida e segura.
+- **Painel de Consulta e Métricas:** Pesquisa avançada por período, tomador/prestador e texto, com totalização de faturamento e exportação para CSV.
 - **Geração Automática de DANFSE:** Converte os arquivos XML baixados em relatórios PDF no formato DANFSE nacional.
 - **Classificação Automática de Notas:** Separa automaticamente arquivos em pastas de **serviços prestados** (empresa como emitente) e **serviços tomados** (empresa como tomadora).
 - **Busca Temporal por Período:** Localiza o intervalo de NSUs (Número Sequencial Único) a partir de datas informadas (`DD/MM/YYYY`), utilizando busca binária inteligente com cache local.
@@ -88,6 +90,12 @@ Converte arquivos XML de NFS-e salvos localmente em relatórios DANFSE (PDF) sem
 - **Pasta Destino (Opcional):** Diretório de saída dos PDFs (se omitido, salva na mesma pasta do XML de origem).
 - **Forçar conversão:** Sobrescreve PDFs já gerados anteriormente.
 
+#### 5. Banco de Dados
+Consulta centralizada de notas fiscais salvas no banco de dados SQLite com visualização analítica e métricas.
+- **Filtros Dinâmicos:** Filtre notas por CNPJ consultado, Tipo (prestadas/tomadas), Período (`DD/MM/YYYY`) ou busca textual.
+- **Resumo Financeiro:** Exibe total de notas, faturamento emitido, serviços tomados e total de ISS apurado.
+- **Ações Rápidas:** Abertura direta do XML ou PDF (DANFSE), exportação para planilha CSV e sincronização em lote de arquivos do disco.
+
 ---
 
 ## Utilização via Linha de Comando (CLI)
@@ -141,6 +149,7 @@ Para mais detalhes sobre flags de comando e integração em lote, consulte [docs
 free-nfse-downloader/
 ├── cache_nsu/              # Cache local de indexação de NSUs por data
 ├── certificados/           # Pasta destinada a certificados .pem e .pfx
+├── dados/                  # Banco de dados local SQLite (nfse.db)
 ├── docs/                   # Documentação detalhada e capturas de tela
 │   ├── arquitetura.md      # Funcionamento do mTLS, NSUs e paginação
 │   └── cli.md              # Guia de comandos de terminal

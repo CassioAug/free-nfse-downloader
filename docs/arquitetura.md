@@ -51,13 +51,17 @@ Para evitar varrer milhões de registros antigos e economizar tráfego:
 
 ---
 
-## 4. Persistência de Dados e Cache Local
+## 4. Persistência de Dados, Banco SQLite e Cache Local
 
-- **`cache_nsu/`**: Armazena os arquivos de mapeamento `{CNPJ}_{ambiente}_index.json` contendo o histórico de NSUs e datas verificadas.
+- **`dados/nfse.db`**: Banco de dados relacional SQLite centralizado. Armazena:
+  - Metadados fiscais completos de cada NFS-e (chave de acesso, número, prestador, tomador, valores dos serviços, impostos, discriminação, caminho do XML e PDF).
+  - Tabela `nsu_index` para localização ultra-rápida de NSUs por data.
+  - Tabela `sync_history` com logs e auditoria de lotes sincronizados.
+- **`cache_nsu/`**: Arquivos JSON complementares de mapeamento `{CNPJ}_{ambiente}_index.json`.
 - **`coletor_nfse.log`**: Registro rotativo detalhado das operações, requisições HTTP e eventuais alertas da API.
-- **`notas_fiscais/{CNPJ}/`**: Diretório onde os arquivos são salvos:
-  - `prestados/`: Notas em que a empresa é emitente.
-  - `tomados/`: Notas em que a empresa é destinatária/tomadora.
+- **`notas_fiscais/{CNPJ}/`**: Diretório onde os arquivos físicos são salvos:
+  - `prestados/`: Notas em que a empresa é emitente (XML e DANFSE PDF).
+  - `tomados/`: Notas em que a empresa é destinatária/tomadora (XML e DANFSE PDF).
   - `sem_data/`: Eventos adicionais (cancelamentos, cartas de correção).
 
 ---
