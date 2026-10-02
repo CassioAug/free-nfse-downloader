@@ -38,6 +38,7 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
 import re
 import shutil
 import logging
+from datetime import datetime, date
 import xml.etree.ElementTree as ET
 
 try:
@@ -129,10 +130,60 @@ def get_service_type(xml_str, cnpj_label):
         return None
 
 
+MESES_PT = {
+    1: "01-Janeiro",
+    2: "02-Fevereiro",
+    3: "03-Março",
+    4: "04-Abril",
+    5: "05-Maio",
+    6: "06-Junho",
+    7: "07-Julho",
+    8: "08-Agosto",
+    9: "09-Setembro",
+    10: "10-Outubro",
+    11: "11-Novembro",
+    12: "12-Dezembro"
+}
+
+
+def get_emission_date_from_xml(xml_str, fname=""):
+    """Extrai a data de emissão a partir do XML ou do nome do arquivo."""
+    if HAS_DATABASE:
+        try:
+            meta = database.extract_nota_metadata(xml_str)
+            if meta and meta.get("data_emissao"):
+                return date.fromisoformat(meta["data_emissao"][:10])
+        except Exception:
+            pass
+
+    try:
+        root = ET.fromstring(xml_str)
+        for el in root.iter():
+            tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+            if tag_local.lower() in ['dhemi', 'dataemissao', 'dtemissao', 'dtemi', 'dhproc']:
+                if el.text:
+                    m = re.search(r'(\d{4})-(\d{2})-(\d{2})', el.text.strip())
+                    if m:
+                        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except Exception:
+        pass
+
+    # Fallback: Extrai da data no nome do arquivo (ex: NFSe_20260702_...)
+    if fname:
+        m_name = re.search(r'NFSe_(\d{4})(\d{2})(\d{2})', fname)
+        if m_name:
+            try:
+                return date(int(m_name.group(1)), int(m_name.group(2)), int(m_name.group(3)))
+            except Exception:
+                pass
+    return None
+
+
 def organize_directory(directory, cnpj_label):
     """
     Varre um diretório por arquivos XML de NFS-e, classifica cada um
-    como serviço prestado ou tomado, e move para a subpasta correspondente.
+    como serviço prestado ou tomado, e move para a subpasta correspondente
+    organizada por Ano e Mês (ex: prestados/2026/01-Janeiro/).
 
     Args:
         directory: Caminho do diretório raiz (ex: ./notas_fiscais/12345678000199)
@@ -147,7 +198,7 @@ def organize_directory(directory, cnpj_label):
     eventos_dir = os.path.join(directory, "eventos")
     sem_data_dir = os.path.join(directory, "sem_data")
 
-    for d in (prestados_dir, tomados_dir):
+    for d in (prestados_dir, tomados_dir, eventos_dir):
         os.makedirs(d, exist_ok=True)
 
     # Migra arquivos legados da pasta sem_data/ se existir
@@ -173,7 +224,6 @@ def organize_directory(directory, cnpj_label):
                             )
                         logger.info(f"  sem_data/{fname} -> eventos/")
                         continue
-                # Se não for evento, move para a raiz para classificação normal
                 dest_root = os.path.join(directory, fname)
                 shutil.move(fpath, dest_root)
             except Exception as e:
@@ -186,14 +236,29 @@ def organize_directory(directory, cnpj_label):
 
     prestados = tomados = indeterminados = erros = 0
 
+    # Coleta todos os arquivos XML a serem classificados / reorganizados
+    # (Arquivos na raiz e arquivos já em prestados/tomados que ainda não estejam em subpastas de ano/mês)
+    arquivos_para_processar = []
     for fname in sorted(os.listdir(directory)):
         fpath = os.path.join(directory, fname)
+        if os.path.isfile(fpath) and fname.lower().endswith('.xml'):
+            arquivos_para_processar.append((directory, fname))
 
-        if not os.path.isfile(fpath) or not fname.lower().endswith('.xml'):
+    for sub_name in ("prestados", "tomados"):
+        sub_path = os.path.join(directory, sub_name)
+        if os.path.isdir(sub_path):
+            for fname in sorted(os.listdir(sub_path)):
+                fpath = os.path.join(sub_path, fname)
+                if os.path.isfile(fpath) and fname.lower().endswith('.xml'):
+                    arquivos_para_processar.append((sub_path, fname))
+
+    for parent_folder, fname in arquivos_para_processar:
+        fpath = os.path.join(parent_folder, fname)
+        if not os.path.isfile(fpath):
             continue
 
         try:
-            with open(fpath, 'r', encoding='utf-8') as f:
+            with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
                 xml_str = f.read()
         except Exception as e:
             logger.error(f"  {fname}: erro ao ler arquivo: {e}")
@@ -204,10 +269,9 @@ def organize_directory(directory, cnpj_label):
         if HAS_DATABASE:
             evt_meta = database.extract_event_metadata(xml_str)
             if evt_meta:
-                eventos_dir = os.path.join(directory, "eventos")
-                os.makedirs(eventos_dir, exist_ok=True)
                 dest_evt = os.path.join(eventos_dir, fname)
-                shutil.move(fpath, dest_evt)
+                if fpath != dest_evt:
+                    shutil.move(fpath, dest_evt)
                 if evt_meta.get("tipo_evento") == "cancelamento" and evt_meta.get("chave_acesso"):
                     database.cancel_nota_by_key(
                         chave_acesso=evt_meta["chave_acesso"],
@@ -218,33 +282,51 @@ def organize_directory(directory, cnpj_label):
                 continue
 
         tipo = get_service_type(xml_str, cnpj_label)
+        dt_emi = get_emission_date_from_xml(xml_str, fname)
+        ano_str = f"{dt_emi.year:04d}" if dt_emi else None
+        mes_str = MESES_PT.get(dt_emi.month, f"{dt_emi.month:02d}") if dt_emi else None
+
         target_xml_path = None
         target_pdf_path = None
 
         # Verifica se há PDF associado na mesma pasta de origem
         pdf_orig_name = os.path.splitext(fname)[0] + ".pdf"
-        pdf_orig_path = os.path.join(directory, pdf_orig_name)
+        pdf_orig_path = os.path.join(parent_folder, pdf_orig_name)
 
         if tipo == 'prestado':
-            dest_xml = os.path.join(prestados_dir, fname)
-            shutil.move(fpath, dest_xml)
+            if ano_str and mes_str:
+                dest_base = os.path.join(prestados_dir, ano_str, mes_str)
+            else:
+                dest_base = prestados_dir
+            os.makedirs(dest_base, exist_ok=True)
+            dest_xml = os.path.join(dest_base, fname)
+            if fpath != dest_xml:
+                shutil.move(fpath, dest_xml)
             target_xml_path = dest_xml
             if os.path.isfile(pdf_orig_path):
-                dest_pdf = os.path.join(prestados_dir, pdf_orig_name)
-                shutil.move(pdf_orig_path, dest_pdf)
+                dest_pdf = os.path.join(dest_base, pdf_orig_name)
+                if pdf_orig_path != dest_pdf:
+                    shutil.move(pdf_orig_path, dest_pdf)
                 target_pdf_path = dest_pdf
             prestados += 1
-            logger.info(f"  {fname} -> prestados/")
+            logger.info(f"  {fname} -> prestados/{ano_str or ''}/{mes_str or ''}")
         elif tipo == 'tomado':
-            dest_xml = os.path.join(tomados_dir, fname)
-            shutil.move(fpath, dest_xml)
+            if ano_str and mes_str:
+                dest_base = os.path.join(tomados_dir, ano_str, mes_str)
+            else:
+                dest_base = tomados_dir
+            os.makedirs(dest_base, exist_ok=True)
+            dest_xml = os.path.join(dest_base, fname)
+            if fpath != dest_xml:
+                shutil.move(fpath, dest_xml)
             target_xml_path = dest_xml
             if os.path.isfile(pdf_orig_path):
-                dest_pdf = os.path.join(tomados_dir, pdf_orig_name)
-                shutil.move(pdf_orig_path, dest_pdf)
+                dest_pdf = os.path.join(dest_base, pdf_orig_name)
+                if pdf_orig_path != dest_pdf:
+                    shutil.move(pdf_orig_path, dest_pdf)
                 target_pdf_path = dest_pdf
             tomados += 1
-            logger.info(f"  {fname} -> tomados/")
+            logger.info(f"  {fname} -> tomados/{ano_str or ''}/{mes_str or ''}")
         else:
             indeterminados += 1
             logger.warning(f"  {fname} -> indeterminado (mantido na raiz)")

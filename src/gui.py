@@ -44,6 +44,7 @@ if sys.platform.startswith("linux") and "TK_LIBRARY" not in os.environ:
                 os.execve(sys.executable, [sys.executable] + sys.argv, _env)
 
 import re
+import time
 import threading
 import subprocess
 import shutil
@@ -82,7 +83,28 @@ def format_date_text(text, is_backspace=False):
             return f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
 
 import csv
+import json
 from datetime import datetime
+
+CONFIG_PATH = os.path.join(BASE_DIR, "dados", "config.json")
+
+def load_user_config():
+    if os.path.isfile(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"theme": "System", "filename_format": "padrao"}
+
+def save_user_config(config):
+    try:
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
 try:
     import database
     HAS_DATABASE = True
@@ -110,20 +132,77 @@ class App(_AppBase):
             raise RuntimeError("Tkinter e CustomTkinter são necessários para executar a interface gráfica.")
         super().__init__()
 
+        # Carrega preferências salvas do usuário
+        self.user_config = load_user_config()
+        saved_theme = self.user_config.get("theme", "System")
+        ctk.set_appearance_mode(saved_theme)
+
         self.title(f"Free NFS-e Downloader v{__version__}")
-        self.geometry("900x700")
+        self.geometry("1100x750")
+        self.minsize(960, 680)
+
+        # Agenda a maximização após a montagem do layout para garantir que permaneça cheia
+        self.after(150, self._maximize_window)
 
         self.update_info = None
         self.banner_frame = None
         self.active_process = None
 
+        # Carrega ícones de interface
+        self._init_icons()
+
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=0)  # Linha do banner de atualização
-        self.grid_rowconfigure(1, weight=1)  # Linha principal das abas
-        self.grid_rowconfigure(2, weight=0)  # Linha da caixa de logs
+        self.grid_rowconfigure(1, weight=0)  # Barra superior de controles/tema
+        self.grid_rowconfigure(2, weight=1)  # Linha principal das abas
+        self.grid_rowconfigure(3, weight=0)  # Linha da caixa de logs
+
+        # Barra Superior de Controles e Tema
+        top_bar = ctk.CTkFrame(self, fg_color="transparent")
+        top_bar.grid(row=1, column=0, padx=20, pady=(6, 0), sticky="ew")
+        top_bar.grid_columnconfigure(0, weight=1)
+        top_bar.grid_columnconfigure(1, weight=0)
+
+        theme_frame = ctk.CTkFrame(top_bar, fg_color=("#E2E8F0", "#1E293B"), corner_radius=8)
+        theme_frame.grid(row=0, column=1, sticky="e")
+
+        self.btn_theme_light = ctk.CTkButton(
+            theme_frame,
+            text="",
+            image=self.icon_sun,
+            width=36,
+            height=30,
+            corner_radius=6,
+            command=lambda: self._set_theme("Light")
+        )
+        self.btn_theme_light.pack(side="left", padx=2, pady=2)
+
+        self.btn_theme_dark = ctk.CTkButton(
+            theme_frame,
+            text="",
+            image=self.icon_moon,
+            width=36,
+            height=30,
+            corner_radius=6,
+            command=lambda: self._set_theme("Dark")
+        )
+        self.btn_theme_dark.pack(side="left", padx=2, pady=2)
+
+        self.btn_theme_sys = ctk.CTkButton(
+            theme_frame,
+            text="",
+            image=self.icon_gears,
+            width=36,
+            height=30,
+            corner_radius=6,
+            command=lambda: self._set_theme("System")
+        )
+        self.btn_theme_sys.pack(side="left", padx=2, pady=2)
+
+        self._update_theme_buttons_ui(saved_theme)
 
         self.tabview = ctk.CTkTabview(self)
-        self.tabview.grid(row=1, column=0, padx=20, pady=(10, 10), sticky="nsew")
+        self.tabview.grid(row=2, column=0, padx=20, pady=(6, 10), sticky="nsew")
 
         self.tab_download = self.tabview.add("Download NFS-e")
         self.tab_convert_pfx = self.tabview.add("Converter PFX/P12")
@@ -139,12 +218,168 @@ class App(_AppBase):
         self.setup_database_tab()
         self.setup_about_tab()
 
+        # Aplica estilo inicial de alto contraste na tabela
+        self._apply_treeview_theme()
+
         self.log_box = ctk.CTkTextbox(self, height=170)
-        self.log_box.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.log_box.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
         self.log_box.configure(state="disabled")
 
         # Inicia checagem não-bloqueante de atualizações no GitHub
         threading.Thread(target=self._check_updates_background, daemon=True).start()
+
+    def _init_icons(self):
+        img_dir = os.path.join(BASE_DIR, "docs", "images")
+        try:
+            from PIL import Image
+            self.icon_sun = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_sun_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_sun_light.png")),
+                size=(16, 16)
+            )
+            self.icon_moon = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_moon_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_moon_light.png")),
+                size=(16, 16)
+            )
+            self.icon_gears = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_gears_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_gears_light.png")),
+                size=(16, 16)
+            )
+            self.icon_play = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_circle_play_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_circle_play_white.png")),
+                size=(16, 16)
+            )
+            self.icon_cancel_active = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_white.png")),
+                size=(16, 16)
+            )
+            self.icon_cancel_disabled = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_disabled_light.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_disabled_dark.png")),
+                size=(16, 16)
+            )
+            self.icon_update = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_cloud_arrow_up_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_cloud_arrow_up_white.png")),
+                size=(16, 16)
+            )
+            self.icon_trash = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_trash_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_trash_light.png")),
+                size=(15, 15)
+            )
+            self.icon_github = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "github_mark_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "github_mark_white.png")),
+                size=(18, 18)
+            )
+        except Exception:
+            self.icon_sun = self.icon_moon = self.icon_gears = None
+            self.icon_play = self.icon_cancel_active = self.icon_cancel_disabled = None
+            self.icon_update = self.icon_trash = self.icon_github = None
+
+    def _set_theme(self, mode_str):
+        ctk.set_appearance_mode(mode_str)
+        self.user_config["theme"] = mode_str
+        save_user_config(self.user_config)
+        self._update_theme_buttons_ui(mode_str)
+        self._apply_treeview_theme(mode_str if mode_str != "System" else None)
+
+    def _update_theme_buttons_ui(self, current_theme):
+        buttons = {
+            "Light": getattr(self, "btn_theme_light", None),
+            "Dark": getattr(self, "btn_theme_dark", None),
+            "System": getattr(self, "btn_theme_sys", None)
+        }
+        for mode, btn in buttons.items():
+            if btn:
+                if mode == current_theme:
+                    btn.configure(
+                        fg_color=("#1D4ED8", "#2563EB"),
+                        hover_color=("#1E40AF", "#1D4ED8")
+                    )
+                else:
+                    btn.configure(
+                        fg_color="transparent",
+                        hover_color=("#CBD5E1", "#334155")
+                    )
+
+    def _maximize_window(self):
+        """Maximiza a janela de forma segura e estável"""
+        try:
+            self.state("zoomed")
+        except Exception:
+            try:
+                self.attributes("-zoomed", True)
+            except Exception:
+                pass
+
+    def _apply_treeview_theme(self, mode=None):
+        if not hasattr(self, "tree_notas") or not self.tree_notas:
+            return
+        if mode is None:
+            mode = ctk.get_appearance_mode()
+
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        if mode == "Dark":
+            bg_color = "#1E293B"
+            fg_color = "#F8FAFC"
+            field_bg = "#1E293B"
+            header_bg = "#0F172A"
+            header_fg = "#F8FAFC"
+            select_bg = "#2563EB"
+            select_fg = "#FFFFFF"
+            cancel_fg = "#F87171"
+            auth_fg = "#4ADE80"
+        else:
+            bg_color = "#FFFFFF"
+            fg_color = "#0F172A"
+            field_bg = "#FFFFFF"
+            header_bg = "#E2E8F0"
+            header_fg = "#0F172A"
+            select_bg = "#1D4ED8"
+            select_fg = "#FFFFFF"
+            cancel_fg = "#B91C1C"
+            auth_fg = "#15803D"
+
+        style.configure(
+            "Treeview",
+            background=bg_color,
+            foreground=fg_color,
+            fieldbackground=field_bg,
+            font=("Segoe UI", 9),
+            rowheight=24,
+            borderwidth=0
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", select_bg)],
+            foreground=[("selected", select_fg)]
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=header_bg,
+            foreground=header_fg,
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            borderwidth=1
+        )
+        style.map(
+            "Treeview.Heading",
+            background=[("active", select_bg if mode == "Dark" else "#CBD5E1")]
+        )
+
+        self.tree_notas.tag_configure("cancelada", foreground=cancel_fg)
+        self.tree_notas.tag_configure("autorizada", foreground=auth_fg)
 
     def log(self, message):
         self.log_box.configure(state="normal")
@@ -165,6 +400,26 @@ class App(_AppBase):
                 self.log(f"\nErro ao cancelar processo: {e}")
             finally:
                 self.on_command_finish()
+
+    def _set_cancel_button_state(self, enabled: bool):
+        if not hasattr(self, "btn_cancel_op") or not self.btn_cancel_op:
+            return
+        if enabled:
+            self.btn_cancel_op.configure(
+                state="normal",
+                fg_color=("#DC2626", "#EF4444"),
+                hover_color=("#B91C1C", "#DC2626"),
+                text_color="#FFFFFF",
+                image=self.icon_cancel_active
+            )
+        else:
+            self.btn_cancel_op.configure(
+                state="disabled",
+                fg_color=("#E2E8F0", "#1E293B"),
+                hover_color=("#E2E8F0", "#1E293B"),
+                text_color=("#94A3B8", "#64748B"),
+                image=self.icon_cancel_disabled
+            )
 
     def run_command_interactive(self, cmd, inputs, success_msg, error_msg):
         def task():
@@ -210,8 +465,7 @@ class App(_AppBase):
                 self.on_command_finish()
 
         self.btn_start_download.configure(state="disabled")
-        if hasattr(self, "btn_cancel_op") and self.btn_cancel_op:
-            self.btn_cancel_op.configure(state="normal")
+        self._set_cancel_button_state(True)
         threading.Thread(target=task, daemon=True).start()
 
     def run_command(self, cmd, success_msg="Concluído.", error_msg="Erro."):
@@ -257,8 +511,7 @@ class App(_AppBase):
         self.btn_convert_pfx.configure(state="disabled")
         self.btn_organize.configure(state="disabled")
         self.btn_convert_xml.configure(state="disabled")
-        if hasattr(self, "btn_cancel_op") and self.btn_cancel_op:
-            self.btn_cancel_op.configure(state="normal")
+        self._set_cancel_button_state(True)
         threading.Thread(target=task, daemon=True).start()
 
     def on_command_finish(self):
@@ -267,8 +520,7 @@ class App(_AppBase):
         self.btn_convert_pfx.configure(state="normal")
         self.btn_organize.configure(state="normal")
         self.btn_convert_xml.configure(state="normal")
-        if hasattr(self, "btn_cancel_op") and self.btn_cancel_op:
-            self.btn_cancel_op.configure(state="disabled")
+        self._set_cancel_button_state(False)
 
     def _on_date_key_release(self, entry, event=None):
         # Ignora teclas de navegação, modificadores e comandos de sistema
@@ -382,29 +634,66 @@ class App(_AppBase):
         self.end_date_entry.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.end_date_entry, e))
         self.end_date_entry.bind("<FocusOut>", lambda e: self._on_date_focus_out(self.end_date_entry, e))
 
+        # Formato de Nomenclatura dos Arquivos
+        ctk.CTkLabel(frame, text="Nome dos Arquivos:").grid(row=7, column=0, padx=10, pady=4, sticky="w")
+        saved_fn = self.user_config.get("filename_format", "padrao")
+        self.filename_format_var = tk.StringVar(value=saved_fn)
+
+        def _on_fn_change():
+            self.user_config["filename_format"] = self.filename_format_var.get()
+            save_user_config(self.user_config)
+
+        radio_fn_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        radio_fn_frame.grid(row=7, column=1, columnspan=2, padx=10, pady=4, sticky="w")
+        self.rb_fn_padrao = ctk.CTkRadioButton(radio_fn_frame, text="Padrão (NFSe_AAAAMMDD_Número)", variable=self.filename_format_var, value="padrao", command=_on_fn_change)
+        self.rb_fn_padrao.pack(side="left", padx=(0, 20))
+        self.rb_fn_chave = ctk.CTkRadioButton(radio_fn_frame, text="Chave de Acesso (50 dígitos)", variable=self.filename_format_var, value="chave", command=_on_fn_change)
+        self.rb_fn_chave.pack(side="left")
+
         # Ignore NSU Cache Checkbox
         self.ignore_cache_var = tk.BooleanVar(value=False)
         self.chk_ignore_cache = ctk.CTkCheckBox(frame, text="Ignorar cache NSU (forçar busca ampla)", variable=self.ignore_cache_var)
-        self.chk_ignore_cache.grid(row=7, column=0, columnspan=2, padx=10, pady=(4, 0), sticky="w")
+        self.chk_ignore_cache.grid(row=8, column=0, columnspan=2, padx=10, pady=(4, 0), sticky="w")
 
         ctk.CTkLabel(
             frame,
             text="Desconsidera o índice local de NSU e consulta a API desde o primeiro NSU disponível.",
-            text_color="gray",
+            text_color=("gray30", "gray70"),
             font=("", 11)
-        ).grid(row=8, column=0, columnspan=2, padx=36, pady=(0, 6), sticky="w")
+        ).grid(row=9, column=0, columnspan=2, padx=36, pady=(0, 6), sticky="w")
 
         # Action Buttons (Iniciar + Interromper)
         btn_action_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        btn_action_frame.grid(row=9, column=0, columnspan=3, pady=10)
+        btn_action_frame.grid(row=10, column=0, columnspan=3, pady=12)
 
-        self.btn_start_download = ctk.CTkButton(btn_action_frame, text="▶ Iniciar Download", width=160, height=34, command=self.start_download)
+        self.btn_start_download = ctk.CTkButton(
+            btn_action_frame,
+            text=" Iniciar Download",
+            image=self.icon_play,
+            compound="left",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            width=175,
+            height=36,
+            fg_color=("#1D4ED8", "#2563EB"),
+            hover_color=("#1E40AF", "#1D4ED8"),
+            text_color="#FFFFFF",
+            command=self.start_download
+        )
         self.btn_start_download.pack(side="left", padx=8)
 
         self.btn_cancel_op = ctk.CTkButton(
-            btn_action_frame, text="🛑 Cancelar Operação", width=160, height=34,
-            fg_color="#dc3545", hover_color="#c82333",
-            state="disabled", command=self.cancel_active_process
+            btn_action_frame,
+            text=" Cancelar Operação",
+            image=self.icon_cancel_disabled,
+            compound="left",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            width=175,
+            height=36,
+            fg_color=("#E2E8F0", "#1E293B"),
+            hover_color=("#E2E8F0", "#1E293B"),
+            text_color=("#94A3B8", "#64748B"),
+            state="disabled",
+            command=self.cancel_active_process
         )
         self.btn_cancel_op.pack(side="left", padx=8)
 
@@ -494,6 +783,8 @@ class App(_AppBase):
         cmd = [sys.executable, os.path.join(SRC_DIR, "download_nfse.py")]
         if self.ignore_cache_var.get():
             cmd.append("--ignorar-cache")
+        if self.filename_format_var.get() == "chave":
+            cmd.extend(["--formato-nome", "chave"])
 
         self.log_box.delete("0.0", "end")
         self.run_command_interactive(
@@ -524,7 +815,12 @@ class App(_AppBase):
         self.pfx_entry = ctk.CTkEntry(frame, placeholder_text="Ex: ./certificados/meu_cert.pfx")
         self.pfx_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
-        self.btn_browse_pfx = ctk.CTkButton(frame, text="Procurar...", command=self.browse_pfx)
+        self.btn_browse_pfx = ctk.CTkButton(
+            frame, text="Procurar...", width=100, height=32,
+            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
+            command=self.browse_pfx
+        )
         self.btn_browse_pfx.grid(row=1, column=2, padx=10, pady=10)
 
         # Password
@@ -538,7 +834,13 @@ class App(_AppBase):
         self.pem_out_entry.grid(row=3, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # Start Button
-        self.btn_convert_pfx = ctk.CTkButton(frame, text="Converter PFX -> PEM", command=self.start_convert_pfx)
+        self.btn_convert_pfx = ctk.CTkButton(
+            frame, text="Converter PFX -> PEM", width=220, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
+            text_color="#FFFFFF",
+            command=self.start_convert_pfx
+        )
         self.btn_convert_pfx.grid(row=4, column=0, columnspan=3, pady=20)
 
     def browse_pfx(self):
@@ -567,8 +869,6 @@ class App(_AppBase):
         self.log_box.delete("0.0", "end")
         self.run_command(cmd, "Conversão Finalizada.", "Erro na Conversão.")
 
-
-
     def setup_organize_tab(self):
         frame = ctk.CTkFrame(self.tab_organize)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -589,7 +889,12 @@ class App(_AppBase):
         self.org_dir_entry = ctk.CTkEntry(frame, placeholder_text="Ex: ./notas_fiscais/12345678000199")
         self.org_dir_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
-        self.btn_browse_org = ctk.CTkButton(frame, text="Procurar...", command=self.browse_org)
+        self.btn_browse_org = ctk.CTkButton(
+            frame, text="Procurar...", width=100, height=32,
+            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
+            command=self.browse_org
+        )
         self.btn_browse_org.grid(row=1, column=2, padx=10, pady=10)
 
         # CNPJ
@@ -598,7 +903,13 @@ class App(_AppBase):
         self.org_cnpj_entry.grid(row=2, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # Start Button
-        self.btn_organize = ctk.CTkButton(frame, text="Organizar Notas", command=self.start_organize)
+        self.btn_organize = ctk.CTkButton(
+            frame, text="Organizar Notas", width=220, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
+            text_color="#FFFFFF",
+            command=self.start_organize
+        )
         self.btn_organize.grid(row=3, column=0, columnspan=3, pady=20)
 
     def browse_org(self):
@@ -620,8 +931,6 @@ class App(_AppBase):
         self.log_box.delete("0.0", "end")
         self.run_command(cmd, "Organização Finalizada.", "Erro na Organização.")
 
-
-
     def setup_xml_pdf_tab(self):
         frame = ctk.CTkFrame(self.tab_xml_pdf)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -642,7 +951,12 @@ class App(_AppBase):
         self.xml_input_entry = ctk.CTkEntry(frame, placeholder_text="Ex: ./notas_fiscais")
         self.xml_input_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
-        self.btn_browse_xml = ctk.CTkButton(frame, text="Procurar...", command=self.browse_xml)
+        self.btn_browse_xml = ctk.CTkButton(
+            frame, text="Procurar...", width=100, height=32,
+            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
+            command=self.browse_xml
+        )
         self.btn_browse_xml.grid(row=1, column=2, padx=10, pady=10)
 
         # Output Path (Optional)
@@ -650,7 +964,12 @@ class App(_AppBase):
         self.pdf_out_entry = ctk.CTkEntry(frame, placeholder_text="Deixe vazio para mesma pasta do XML")
         self.pdf_out_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
 
-        self.btn_browse_pdf_out = ctk.CTkButton(frame, text="Procurar...", command=self.browse_pdf_out)
+        self.btn_browse_pdf_out = ctk.CTkButton(
+            frame, text="Procurar...", width=100, height=32,
+            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
+            command=self.browse_pdf_out
+        )
         self.btn_browse_pdf_out.grid(row=2, column=2, padx=10, pady=10)
 
         # Force overwrite
@@ -659,7 +978,13 @@ class App(_AppBase):
         self.chk_force.grid(row=3, column=1, columnspan=2, padx=10, pady=10, sticky="w")
 
         # Start Button
-        self.btn_convert_xml = ctk.CTkButton(frame, text="Converter XML -> PDF", command=self.start_convert_xml)
+        self.btn_convert_xml = ctk.CTkButton(
+            frame, text="Converter XML -> PDF", width=220, height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
+            text_color="#FFFFFF",
+            command=self.start_convert_xml
+        )
         self.btn_convert_xml.grid(row=4, column=0, columnspan=3, pady=20)
 
     def browse_xml(self):
@@ -737,24 +1062,44 @@ class App(_AppBase):
         btn_filter_frame = ctk.CTkFrame(filter_frame, fg_color="transparent")
         btn_filter_frame.grid(row=2, column=0, columnspan=6, padx=5, pady=(2, 6), sticky="e")
 
-        self.btn_db_filter = ctk.CTkButton(btn_filter_frame, text="🔎 Filtrar", width=90, height=28, command=self.refresh_database_view)
+        self.btn_db_filter = ctk.CTkButton(
+            btn_filter_frame, text="🔎 Filtrar", width=95, height=28,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
+            text_color="#FFFFFF",
+            command=self.refresh_database_view
+        )
         self.btn_db_filter.pack(side="right", padx=5)
 
         self.btn_db_clear = ctk.CTkButton(
-            btn_filter_frame, text="🧹 Limpar", width=80, height=28,
-            fg_color=("gray75", "gray25"), text_color=("black", "white"),
+            btn_filter_frame,
+            text=" Limpar",
+            image=self.icon_trash,
+            compound="left",
+            width=90,
+            height=28,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
             command=self._clear_db_filters
         )
         self.btn_db_clear.pack(side="right", padx=5)
 
         # 2. Card de Resumo Financeiro
-        self.summary_frame = ctk.CTkFrame(self.tab_database, fg_color=("gray88", "gray18"), corner_radius=6)
+        self.summary_frame = ctk.CTkFrame(
+            self.tab_database,
+            fg_color=("#F1F5F9", "#1E293B"),
+            border_width=1,
+            border_color=("#CBD5E1", "#334155"),
+            corner_radius=8
+        )
         self.summary_frame.grid(row=1, column=0, padx=10, pady=(2, 5), sticky="ew")
 
         self.lbl_summary_text = ctk.CTkLabel(
             self.summary_frame,
             text="Carregando resumo financeiro...",
             font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=("#0F172A", "#F8FAFC"),
             justify="center"
         )
         self.lbl_summary_text.pack(padx=10, pady=6)
@@ -790,10 +1135,6 @@ class App(_AppBase):
         self.tree_notas.column("xml", width=40, anchor="center")
         self.tree_notas.column("pdf", width=40, anchor="center")
 
-        # Tags para estilização visual
-        self.tree_notas.tag_configure("cancelada", foreground="#dc3545")
-        self.tree_notas.tag_configure("autorizada", foreground="")
-
         tree_scroll_y = ttk.Scrollbar(table_container, orient="vertical", command=self.tree_notas.yview)
         self.tree_notas.configure(yscrollcommand=tree_scroll_y.set)
 
@@ -806,22 +1147,35 @@ class App(_AppBase):
         actions_bar = ctk.CTkFrame(self.tab_database, fg_color="transparent")
         actions_bar.grid(row=3, column=0, padx=10, pady=(5, 10), sticky="ew")
 
-        self.btn_open_xml = ctk.CTkButton(actions_bar, text="📄 Abrir XML", width=100, height=32, command=self.open_selected_xml)
+        self.btn_open_xml = ctk.CTkButton(
+            actions_bar, text="📄 Abrir XML", width=110, height=32,
+            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
+            command=self.open_selected_xml
+        )
         self.btn_open_xml.pack(side="left", padx=(0, 8))
 
-        self.btn_open_pdf = ctk.CTkButton(actions_bar, text="📑 Abrir DANFSE (PDF)", width=140, height=32, command=self.open_selected_pdf)
+        self.btn_open_pdf = ctk.CTkButton(
+            actions_bar, text="📑 Abrir DANFSE (PDF)", width=150, height=32,
+            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
+            command=self.open_selected_pdf
+        )
         self.btn_open_pdf.pack(side="left", padx=(0, 8))
 
         self.btn_export_csv = ctk.CTkButton(
-            actions_bar, text="📊 Exportar CSV", width=110, height=32,
-            fg_color="#17a2b8", hover_color="#138496",
+            actions_bar, text="📊 Exportar CSV", width=120, height=32,
+            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            hover_color=("#CBD5E1", "#475569"),
             command=self.export_database_csv
         )
         self.btn_export_csv.pack(side="left", padx=(0, 8))
 
         self.btn_sync_db = ctk.CTkButton(
-            actions_bar, text="🔄 Importar / Sincronizar Arquivos Locais", width=220, height=32,
-            fg_color="#28a745", hover_color="#218838",
+            actions_bar, text="🔄 Importar / Sincronizar Arquivos Locais", width=240, height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=("#15803D", "#16A34A"), hover_color=("#166534", "#15803D"),
+            text_color="#FFFFFF",
             command=self.sync_local_files_to_db
         )
         self.btn_sync_db.pack(side="right", padx=0)
@@ -1112,23 +1466,35 @@ class App(_AppBase):
         lbl_version.pack(pady=(0, 10))
 
         # Seção de Atualização
-        self.update_card = ctk.CTkFrame(container, fg_color=("gray85", "gray17"), corner_radius=8)
+        self.update_card = ctk.CTkFrame(
+            container,
+            fg_color=("#F1F5F9", "#1E293B"),
+            border_width=1,
+            border_color=("#CBD5E1", "#334155"),
+            corner_radius=8
+        )
         self.update_card.pack(pady=(0, 15), padx=20, fill="x")
 
         self.lbl_update_status = ctk.CTkLabel(
             self.update_card,
             text="Verificação automática em segundo plano ativada.",
             font=ctk.CTkFont(size=12),
-            text_color="gray"
+            text_color=("#334155", "#CBD5E1")
         )
         self.lbl_update_status.pack(pady=(8, 4), padx=15)
 
         self.btn_check_update = ctk.CTkButton(
             self.update_card,
-            text="🔍 Verificar Atualizações",
+            text=" Verificar Atualizações",
+            image=self.icon_update,
+            compound="left",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#1D4ED8", "#2563EB"),
+            hover_color=("#1E40AF", "#1D4ED8"),
+            text_color="#FFFFFF",
             command=self.manual_check_updates,
-            width=220,
-            height=32
+            width=240,
+            height=34
         )
         self.btn_check_update.pack(pady=(0, 8), padx=15)
 
@@ -1136,23 +1502,31 @@ class App(_AppBase):
             container,
             text="Automação, sincronização e download em lote de Notas Fiscais de Serviços\nEletrônicas (NFS-e) diretamente da API do Ambiente de Dados Nacional.",
             justify="center",
-            font=ctk.CTkFont(size=13)
+            font=ctk.CTkFont(size=13),
+            text_color=("#334155", "#CBD5E1")
         )
         lbl_desc.pack(pady=(0, 18))
 
         lbl_author = ctk.CTkLabel(
             container,
-            text="Desenvolvido por: Cássio Augusto Couto Soares (CassioAug)",
-            font=ctk.CTkFont(size=14, weight="bold")
+            text="Desenvolvido por: Cássio Augusto Couto Soares",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=("#0F172A", "#F8FAFC")
         )
         lbl_author.pack(pady=(0, 10))
 
         btn_github = ctk.CTkButton(
             container,
-            text="🌐 Abrir Repositório no GitHub",
+            text=" CassioAug/free-nfse-downloader",
+            image=self.icon_github,
+            compound="left",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=("#1D4ED8", "#2563EB"),
+            hover_color=("#1E40AF", "#1D4ED8"),
+            text_color="#FFFFFF",
             command=lambda: webbrowser.open("https://github.com/CassioAug/free-nfse-downloader"),
-            width=260,
-            height=36
+            width=320,
+            height=38
         )
         btn_github.pack(pady=(0, 18))
 

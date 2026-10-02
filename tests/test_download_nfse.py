@@ -50,5 +50,18 @@ class TestParseDate(unittest.TestCase):
         self.assertIsNone(parse_date(["01/01/2026"]))
 
 
+class TestDownloadHelpers(unittest.TestCase):
+    def test_meses_pt_mapping(self):
+        from download_nfse import MESES_PT
+        self.assertEqual(MESES_PT[1], "01-Janeiro")
+        self.assertEqual(MESES_PT[7], "07-Julho")
+        self.assertEqual(MESES_PT[12], "12-Dezembro")
+
+    def test_get_access_key_from_xml(self):
+        from download_nfse import get_access_key
+        xml = '<NFSe><infNFSe Id="NFS31062002222692924000139000000000006326047074951490"><nNFSe>63</nNFSe></infNFSe></NFSe>'
+        self.assertEqual(get_access_key(xml), "31062002222692924000139000000000006326047074951490")
+
+
 if __name__ == "__main__":
     unittest.main()

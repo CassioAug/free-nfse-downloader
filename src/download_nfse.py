@@ -258,6 +258,21 @@ def extract_xml(data):
             
     return None
 
+MESES_PT = {
+    1: "01-Janeiro",
+    2: "02-Fevereiro",
+    3: "03-Março",
+    4: "04-Abril",
+    5: "05-Maio",
+    6: "06-Junho",
+    7: "07-Julho",
+    8: "08-Agosto",
+    9: "09-Setembro",
+    10: "10-Outubro",
+    11: "11-Novembro",
+    12: "12-Dezembro"
+}
+
 def get_emission_date(xml_str):
     """Encontra a data de emissão no XML independente do namespace"""
     try:
@@ -275,6 +290,29 @@ def get_emission_date(xml_str):
                 return datetime.strptime(match.group(0), "%Y-%m-%d").date()
     except Exception as e:
         logger.debug(f"Erro ao parsear data do XML: {e}")
+    return None
+
+def get_access_key(xml_str):
+    """Encontra a chave de acesso de 50 dígitos no XML"""
+    try:
+        root = ET.fromstring(xml_str)
+        for el in root.iter():
+            tag_local = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+            tag_lower = tag_local.lower()
+            if tag_lower in ('infnfse', 'dps', 'infdps') and 'Id' in el.attrib:
+                val_id = re.sub(r'^[a-zA-Z]+', '', el.attrib['Id'])
+                if len(val_id) >= 40:
+                    return val_id
+            if tag_lower in ('chnfse', 'chavenfse', 'chave'):
+                if el.text:
+                    digits = re.sub(r'\D', '', el.text)
+                    if len(digits) >= 40:
+                        return digits
+        m = re.search(r'\b\d{50}\b', xml_str)
+        if m:
+            return m.group(0)
+    except Exception:
+        pass
     return None
 
 def get_nfse_number(xml_str):
@@ -404,11 +442,20 @@ def extract_cnpj_from_pem(pem_path):
 
 def main():
     if "-h" in sys.argv or "--help" in sys.argv:
-        print("Uso: python3 download_nfse.py [--ignorar-cache | --no-cache]")
+        print("Uso: python3 download_nfse.py [--ignorar-cache] [--formato-nome {padrao,chave}]")
         print("Opções:")
         print("  --ignorar-cache, --no-cache   Ignora cache de localização de NSU e força busca ampla.")
+        print("  --formato-nome {padrao,chave} Formato do nome dos arquivos (padrao: NFSe_AAAAMMDD_NUM, chave: 50 digitos).")
+        print("  --usar-chave                  Atalho para --formato-nome chave.")
         print("  -h, --help                    Exibe esta mensagem de ajuda.")
         return 0
+
+    formato_nome = "padrao"
+    for i, arg in enumerate(sys.argv):
+        if arg in ("--formato-nome", "--nome-formato") and i + 1 < len(sys.argv):
+            formato_nome = sys.argv[i + 1].lower().strip()
+        elif arg in ("--usar-chave", "--nome-chave"):
+            formato_nome = "chave"
 
     if not HAS_DANFSE_LIB and sys.stdin and sys.stdin.isatty():
         check_install_dependencies(interactive=True)
@@ -722,13 +769,17 @@ def main():
                         else:
                             tipo_subdir = None
                         
+                        ano_dir = f"{dt.year:04d}"
+                        mes_dir = MESES_PT.get(dt.month, f"{dt.month:02d}")
+
                         if tipo_subdir:
-                            tipo_dir = os.path.join(output_dir, tipo_subdir)
+                            tipo_dir = os.path.join(output_dir, tipo_subdir, ano_dir, mes_dir)
                             os.makedirs(tipo_dir, exist_ok=True)
-                            logger.info(f"    -> Serviço {tipo_servico}")
+                            logger.info(f"    -> Serviço {tipo_servico} ({ano_dir}/{mes_dir})")
                         else:
-                            tipo_dir = output_dir
-                            logger.info(f"    -> Tipo de serviço indeterminado, salvando na raiz")
+                            tipo_dir = os.path.join(output_dir, ano_dir, mes_dir)
+                            os.makedirs(tipo_dir, exist_ok=True)
+                            logger.info(f"    -> Tipo de serviço indeterminado, salvando em {ano_dir}/{mes_dir}")
                         
                         # Verifica se a nota já foi cancelada previamente
                         is_cancelada = False
@@ -746,15 +797,22 @@ def main():
 
                         suffix = "_cancelada" if (is_cancelada or (meta_check and meta_check.get("status") == "cancelada")) else ""
 
-                        nfse_num = get_nfse_number(xml_content)
-                        if nfse_num:
-                            try:
-                                formatted_num = f"{int(nfse_num):06d}"
-                            except ValueError:
-                                formatted_num = nfse_num.zfill(6)[-6:]
-                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_{formatted_num}{suffix}"
+                        ch_val = (meta_check and meta_check.get("chave_acesso")) or get_access_key(xml_content)
+                        if formato_nome == "chave" and ch_val:
+                            file_base = f"{ch_val}{suffix}"
                         else:
-                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_nsu_{nsu_item}{suffix}"
+                            nfse_num = get_nfse_number(xml_content)
+                            if nfse_num:
+                                try:
+                                    formatted_num = f"{int(nfse_num):06d}"
+                                except ValueError:
+                                    formatted_num = nfse_num.zfill(6)[-6:]
+                                file_base = f"NFSe_{dt.strftime('%Y%m%d')}_{formatted_num}{suffix}"
+                            elif ch_val:
+                                file_base = f"{ch_val}{suffix}"
+                            else:
+                                file_base = f"NFSe_{dt.strftime('%Y%m%d')}_nsu_{nsu_item}{suffix}"
+
                         xml_file_path = os.path.join(tipo_dir, f"{file_base}.xml")
                         
                         with open(xml_file_path, "w", encoding="utf-8") as f:

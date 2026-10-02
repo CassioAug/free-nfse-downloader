@@ -3,4 +3,4 @@
 
 """Version information for free-nfse-downloader."""
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
