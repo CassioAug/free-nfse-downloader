@@ -144,9 +144,45 @@ def organize_directory(directory, cnpj_label):
 
     prestados_dir = os.path.join(directory, "prestados")
     tomados_dir = os.path.join(directory, "tomados")
+    eventos_dir = os.path.join(directory, "eventos")
+    sem_data_dir = os.path.join(directory, "sem_data")
 
     for d in (prestados_dir, tomados_dir):
         os.makedirs(d, exist_ok=True)
+
+    # Migra arquivos legados da pasta sem_data/ se existir
+    if os.path.isdir(sem_data_dir):
+        os.makedirs(eventos_dir, exist_ok=True)
+        for fname in os.listdir(sem_data_dir):
+            fpath = os.path.join(sem_data_dir, fname)
+            if not os.path.isfile(fpath) or not fname.lower().endswith('.xml'):
+                continue
+            try:
+                with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                if HAS_DATABASE:
+                    evt_meta = database.extract_event_metadata(content)
+                    if evt_meta:
+                        dest_evt = os.path.join(eventos_dir, fname)
+                        shutil.move(fpath, dest_evt)
+                        if evt_meta.get("tipo_evento") == "cancelamento" and evt_meta.get("chave_acesso"):
+                            database.cancel_nota_by_key(
+                                chave_acesso=evt_meta["chave_acesso"],
+                                motivo=evt_meta.get("motivo"),
+                                data_cancelamento=evt_meta.get("data_evento")
+                            )
+                        logger.info(f"  sem_data/{fname} -> eventos/")
+                        continue
+                # Se não for evento, move para a raiz para classificação normal
+                dest_root = os.path.join(directory, fname)
+                shutil.move(fpath, dest_root)
+            except Exception as e:
+                logger.warning(f"Erro ao processar sem_data/{fname}: {e}")
+        try:
+            if not os.listdir(sem_data_dir):
+                os.rmdir(sem_data_dir)
+        except Exception:
+            pass
 
     prestados = tomados = indeterminados = erros = 0
 
@@ -163,6 +199,23 @@ def organize_directory(directory, cnpj_label):
             logger.error(f"  {fname}: erro ao ler arquivo: {e}")
             erros += 1
             continue
+
+        # Se for um arquivo de Evento (ex: cancelamento), move para a subpasta eventos/
+        if HAS_DATABASE:
+            evt_meta = database.extract_event_metadata(xml_str)
+            if evt_meta:
+                eventos_dir = os.path.join(directory, "eventos")
+                os.makedirs(eventos_dir, exist_ok=True)
+                dest_evt = os.path.join(eventos_dir, fname)
+                shutil.move(fpath, dest_evt)
+                if evt_meta.get("tipo_evento") == "cancelamento" and evt_meta.get("chave_acesso"):
+                    database.cancel_nota_by_key(
+                        chave_acesso=evt_meta["chave_acesso"],
+                        motivo=evt_meta.get("motivo"),
+                        data_cancelamento=evt_meta.get("data_evento")
+                    )
+                logger.info(f"  {fname} -> eventos/")
+                continue
 
         tipo = get_service_type(xml_str, cnpj_label)
         target_xml_path = None
@@ -201,6 +254,8 @@ def organize_directory(directory, cnpj_label):
             try:
                 meta = database.extract_nota_metadata(xml_str, cnpj_consultado=cnpj_label)
                 if meta:
+                    if "_cancelada" in fname.lower():
+                        meta["status"] = "cancelada"
                     if target_xml_path:
                         meta["caminho_xml"] = os.path.abspath(target_xml_path)
                     else:

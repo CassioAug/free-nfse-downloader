@@ -48,13 +48,14 @@ exit /b 1
 set "VENV_PYTHON=.venv\Scripts\python.exe"
 
 :run_gui
-echo Iniciando a interface grafica...
-"%VENV_PYTHON%" src\gui.py
-if errorlevel 1 goto :gui_error
-goto :eof
+set "VENV_PYTHONW="
+if exist ".venv\Scripts\pythonw.exe" set "VENV_PYTHONW=.venv\Scripts\pythonw.exe"
+if "%VENV_PYTHONW%"=="" if exist "venv\Scripts\pythonw.exe" set "VENV_PYTHONW=venv\Scripts\pythonw.exe"
+if "%VENV_PYTHONW%"=="" if exist "env\Scripts\pythonw.exe" set "VENV_PYTHONW=env\Scripts\pythonw.exe"
 
-:gui_error
-echo.
-echo [ERRO] A interface grafica encerrou com erro.
-echo.
-pause
+if not "%VENV_PYTHONW%"=="" (
+    start "" "%VENV_PYTHONW%" src\gui.py
+) else (
+    start "" "%VENV_PYTHON%" src\gui.py
+)
+exit /b 0

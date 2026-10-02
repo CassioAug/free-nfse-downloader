@@ -84,6 +84,8 @@ def convert_single_xml(xml_path, output_dir=None, overwrite=False):
             try:
                 meta = database.extract_nota_metadata(xml_content)
                 if meta:
+                    if "_cancelada" in base_name.lower():
+                        meta["status"] = "cancelada"
                     meta["caminho_xml"] = os.path.abspath(xml_path)
                     meta["caminho_pdf"] = os.path.abspath(pdf_path)
                     database.upsert_nota_fiscal(meta)

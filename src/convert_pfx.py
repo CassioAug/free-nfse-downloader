@@ -39,19 +39,29 @@ def main():
     if not os.path.exists(cert_dir):
         os.makedirs(cert_dir)
 
+    def _safe_input(prompt, default=""):
+        try:
+            if not sys.stdin:
+                return default
+            return input(prompt).strip()
+        except (EOFError, OSError, KeyboardInterrupt):
+            return default
+
+    def _safe_getpass(prompt, default=""):
+        try:
+            if not sys.stdin or not sys.stdin.isatty() or not sys.stdout.isatty():
+                return default
+            return getpass.getpass(prompt)
+        except Exception:
+            return default
+
     # Verifica argumentos CLI, senão pergunta de forma interativa
     if len(sys.argv) >= 2:
         pfx_path = sys.argv[1]
     else:
-        if not sys.stdin or not sys.stdin.isatty():
+        pfx_path = _safe_input(f"Caminho para o arquivo .pfx ou .p12 [Padrão: {cert_dir}]: ", cert_dir)
+        if not pfx_path:
             pfx_path = cert_dir
-        else:
-            try:
-                pfx_path = input(f"Caminho para o arquivo .pfx ou .p12 [Padrão: {cert_dir}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                pfx_path = cert_dir
-            if not pfx_path:
-                pfx_path = cert_dir
         
     # Remove aspas caso o usuário tenha arrastado o arquivo para o terminal
     pfx_path = pfx_path.strip("'\"")
@@ -74,46 +84,27 @@ def main():
             print("Certificados encontrados:")
             for idx, arq in enumerate(arquivos, 1):
                 print(f"  {idx} - {arq}")
-            if not sys.stdin or not sys.stdin.isatty():
+            opcao = _safe_input(f"Selecione o número do certificado (1-{len(arquivos)}): ", "1")
+            if not opcao.isdigit() or not (1 <= int(opcao) <= len(arquivos)):
                 pfx_path = os.path.join(pfx_path, arquivos[0])
-                print(f"Ambiente não-interativo: selecionado automaticamente {pfx_path}")
+                print(f"Opção padrão selecionada: {pfx_path}")
             else:
-                try:
-                    opcao = input(f"Selecione o número do certificado (1-{len(arquivos)}): ").strip()
-                    if not opcao.isdigit() or not (1 <= int(opcao) <= len(arquivos)):
-                        print("Opção inválida.")
-                        return 1
-                    pfx_path = os.path.join(pfx_path, arquivos[int(opcao) - 1])
-                    print(f"Arquivo selecionado: {pfx_path}")
-                except (KeyboardInterrupt, SystemExit, EOFError):
-                    print("\nOperação cancelada.")
-                    return 1
+                pfx_path = os.path.join(pfx_path, arquivos[int(opcao) - 1])
+                print(f"Arquivo selecionado: {pfx_path}")
         
     if len(sys.argv) >= 3:
         password = sys.argv[2]
     else:
-        if not sys.stdin or not sys.stdin.isatty():
-            password = ""
-        else:
-            try:
-                password = getpass.getpass("Senha do certificado (pressione Enter se não houver): ")
-            except (EOFError, KeyboardInterrupt):
-                password = ""
+        password = _safe_getpass("Senha do certificado (pressione Enter se não houver): ", "")
 
     if len(sys.argv) >= 4:
         pem_path = sys.argv[3]
     else:
         base_name = os.path.basename(pfx_path)
         default_pem = os.path.join(cert_dir, os.path.splitext(base_name)[0] + ".pem")
-        if not sys.stdin or not sys.stdin.isatty():
+        pem_path = _safe_input(f"Caminho do arquivo PEM de saída [Padrão: {default_pem}]: ", default_pem)
+        if not pem_path:
             pem_path = default_pem
-        else:
-            try:
-                pem_path = input(f"Caminho do arquivo PEM de saída [Padrão: {default_pem}]: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                pem_path = default_pem
-            if not pem_path:
-                pem_path = default_pem
 
     pem_path = pem_path.strip("'\"")
 

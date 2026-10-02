@@ -1,4 +1,4 @@
-# Free NFS-e Downloader (v2.4.0)
+# Free NFS-e Downloader (v2.5.0)
 
 [![CI](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/CassioAug/free-nfse-downloader/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/CassioAug/free-nfse-downloader?color=blue)](https://github.com/CassioAug/free-nfse-downloader/releases)
@@ -19,8 +19,9 @@ O sistema obtém os arquivos **XML** oficiais diretamente da API governamental e
 ## Recursos Principais
 
 - **Download Automatizado via ADN:** Conexão direta com o endpoint de distribuição DFe da Receita Federal (`/contribuintes/DFe/{NSU}`).
+- **Reconhecimento de Notas Canceladas:** Identifica eventos de cancelamento na API, renomeia automaticamente arquivos XML e PDF locais com o sufixo `_cancelada` e exclui notas canceladas dos totais de faturamento e tributos.
 - **Banco de Dados SQLite Integrado:** Armazena e indexa todos os metadados fiscais, valores de serviços e impostos retidos localmente de forma rápida e segura.
-- **Painel de Consulta e Métricas:** Pesquisa avançada por período, tomador/prestador e texto, com totalização de faturamento e exportação para CSV.
+- **Painel de Consulta e Métricas:** Pesquisa avançada por período, status (autorizada/cancelada), tomador/prestador e texto, com totalização de faturamento e exportação para CSV.
 - **Geração Automática de DANFSE:** Converte os arquivos XML baixados em relatórios PDF no formato DANFSE nacional.
 - **Classificação Automática de Notas:** Separa automaticamente arquivos em pastas de **serviços prestados** (empresa como emitente) e **serviços tomados** (empresa como tomadora).
 - **Busca Temporal por Período:** Localiza o intervalo de NSUs (Número Sequencial Único) a partir de datas informadas (`DD/MM/YYYY`), utilizando busca binária inteligente com cache local.
@@ -28,7 +29,7 @@ O sistema obtém os arquivos **XML** oficiais diretamente da API governamental e
 - **Utilitários Integrados:**
   - Conversão de certificados A1 (`.pfx` / `.p12`) para `.pem` sem senha para uso mTLS.
   - Conversão offline em lote de arquivos XML para PDF.
-  - Reorganização e classificação de arquivos XML já existentes no disco.
+  - Reorganização, reprocessamento e classificação de arquivos XML já existentes no disco.
 - **Privacidade e Segurança:** Execução 100% local. Certificados, chaves privadas e notas fiscais não são compartilhados com servidores de terceiros ou serviços em nuvem.
 
 ---

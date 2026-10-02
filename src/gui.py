@@ -115,6 +115,7 @@ class App(_AppBase):
 
         self.update_info = None
         self.banner_frame = None
+        self.active_process = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=0)  # Linha do banner de atualização
@@ -151,6 +152,20 @@ class App(_AppBase):
         self.log_box.see(tk.END)
         self.log_box.configure(state="disabled")
 
+    def cancel_active_process(self):
+        """Interrompe e encerra o processo em execução a pedido do usuário"""
+        if self.active_process:
+            try:
+                self.log("\n[Aviso] Interrompendo operação a pedido do usuário...")
+                self.active_process.terminate()
+                time.sleep(0.3)
+                if self.active_process.poll() is None:
+                    self.active_process.kill()
+            except Exception as e:
+                self.log(f"\nErro ao cancelar processo: {e}")
+            finally:
+                self.on_command_finish()
+
     def run_command_interactive(self, cmd, inputs, success_msg, error_msg):
         def task():
             self.log(f"Executando...\n")
@@ -171,6 +186,7 @@ class App(_AppBase):
                     bufsize=1,
                     universal_newlines=True
                 )
+                self.active_process = process
 
                 if inputs:
                     for inp in inputs:
@@ -184,6 +200,8 @@ class App(_AppBase):
 
                 if process.returncode == 0:
                     self.log(f"\n--- {success_msg} ---")
+                elif process.returncode in (-15, -9, 15, 1):
+                    self.log(f"\n--- Operação finalizada / cancelada (Código: {process.returncode}) ---")
                 else:
                     self.log(f"\n--- {error_msg} (Código: {process.returncode}) ---")
             except Exception as e:
@@ -192,6 +210,8 @@ class App(_AppBase):
                 self.on_command_finish()
 
         self.btn_start_download.configure(state="disabled")
+        if hasattr(self, "btn_cancel_op") and self.btn_cancel_op:
+            self.btn_cancel_op.configure(state="normal")
         threading.Thread(target=task, daemon=True).start()
 
     def run_command(self, cmd, success_msg="Concluído.", error_msg="Erro."):
@@ -214,6 +234,7 @@ class App(_AppBase):
                     bufsize=1,
                     universal_newlines=True
                 )
+                self.active_process = process
 
                 for line in process.stdout:
                     self.log(line.strip())
@@ -222,6 +243,8 @@ class App(_AppBase):
 
                 if process.returncode == 0:
                     self.log(f"\n--- {success_msg} ---")
+                elif process.returncode in (-15, -9, 15, 1):
+                    self.log(f"\n--- Operação finalizada / cancelada (Código: {process.returncode}) ---")
                 else:
                     self.log(f"\n--- {error_msg} (Código: {process.returncode}) ---")
             except Exception as e:
@@ -234,13 +257,18 @@ class App(_AppBase):
         self.btn_convert_pfx.configure(state="disabled")
         self.btn_organize.configure(state="disabled")
         self.btn_convert_xml.configure(state="disabled")
+        if hasattr(self, "btn_cancel_op") and self.btn_cancel_op:
+            self.btn_cancel_op.configure(state="normal")
         threading.Thread(target=task, daemon=True).start()
 
     def on_command_finish(self):
+        self.active_process = None
         self.btn_start_download.configure(state="normal")
         self.btn_convert_pfx.configure(state="normal")
         self.btn_organize.configure(state="normal")
         self.btn_convert_xml.configure(state="normal")
+        if hasattr(self, "btn_cancel_op") and self.btn_cancel_op:
+            self.btn_cancel_op.configure(state="disabled")
 
     def _on_date_key_release(self, entry, event=None):
         # Ignora teclas de navegação, modificadores e comandos de sistema
@@ -366,9 +394,19 @@ class App(_AppBase):
             font=("", 11)
         ).grid(row=8, column=0, columnspan=2, padx=36, pady=(0, 6), sticky="w")
 
-        # Start Button
-        self.btn_start_download = ctk.CTkButton(frame, text="Iniciar Download", command=self.start_download)
-        self.btn_start_download.grid(row=9, column=0, columnspan=3, pady=10)
+        # Action Buttons (Iniciar + Interromper)
+        btn_action_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        btn_action_frame.grid(row=9, column=0, columnspan=3, pady=10)
+
+        self.btn_start_download = ctk.CTkButton(btn_action_frame, text="▶ Iniciar Download", width=160, height=34, command=self.start_download)
+        self.btn_start_download.pack(side="left", padx=8)
+
+        self.btn_cancel_op = ctk.CTkButton(
+            btn_action_frame, text="🛑 Cancelar Operação", width=160, height=34,
+            fg_color="#dc3545", hover_color="#c82333",
+            state="disabled", command=self.cancel_active_process
+        )
+        self.btn_cancel_op.pack(side="left", padx=8)
 
         # We also need dummy buttons for other tabs so they can be disabled initially
         self.btn_convert_pfx = ctk.CTkButton(self.tab_convert_pfx, text="")
@@ -397,7 +435,7 @@ class App(_AppBase):
         cert_type = self.cert_type_var.get()
         start_date = format_date_text(self.start_date_entry.get().strip())
         raw_end = self.end_date_entry.get().strip()
-        end_date = format_date_text(raw_end) if raw_end else ""
+        end_date = format_date_text(raw_end) if raw_end else datetime.today().strftime("%d/%m/%Y")
         cnpj = self.cnpj_entry.get().strip()
 
         if not start_date:
@@ -451,10 +489,7 @@ class App(_AppBase):
                 inputs.append(a3_idx)
 
         inputs.append(start_date)
-        if end_date:
-            inputs.append(end_date)
-        else:
-            inputs.append("") # Deixa vazio para pegar a data de hoje
+        inputs.append(end_date)
 
         cmd = [sys.executable, os.path.join(SRC_DIR, "download_nfse.py")]
         if self.ignore_cache_var.get():
@@ -668,35 +703,39 @@ class App(_AppBase):
         # 1. Painel de Filtros
         filter_frame = ctk.CTkFrame(self.tab_database)
         filter_frame.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
-        filter_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        filter_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
         # Linha 1 de filtros
         ctk.CTkLabel(filter_frame, text="CNPJ:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, padx=5, pady=(5, 2), sticky="w")
-        self.db_filter_cnpj = ctk.CTkEntry(filter_frame, placeholder_text="14 dígitos (opcional)", width=140)
+        self.db_filter_cnpj = ctk.CTkEntry(filter_frame, placeholder_text="14 dígitos", width=120)
         self.db_filter_cnpj.grid(row=1, column=0, padx=5, pady=(0, 5), sticky="ew")
 
         ctk.CTkLabel(filter_frame, text="Tipo:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=1, padx=5, pady=(5, 2), sticky="w")
-        self.db_filter_tipo = ctk.CTkOptionMenu(filter_frame, values=["Todos", "prestado", "tomado"], width=110)
+        self.db_filter_tipo = ctk.CTkOptionMenu(filter_frame, values=["Todos", "prestado", "tomado"], width=100)
         self.db_filter_tipo.grid(row=1, column=1, padx=5, pady=(0, 5), sticky="ew")
 
-        ctk.CTkLabel(filter_frame, text="Data Inicial:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=2, padx=5, pady=(5, 2), sticky="w")
-        self.db_filter_dini = ctk.CTkEntry(filter_frame, placeholder_text="DD/MM/YYYY", width=110)
-        self.db_filter_dini.grid(row=1, column=2, padx=5, pady=(0, 5), sticky="ew")
+        ctk.CTkLabel(filter_frame, text="Status:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=2, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_status = ctk.CTkOptionMenu(filter_frame, values=["Todos", "autorizada", "cancelada"], width=110)
+        self.db_filter_status.grid(row=1, column=2, padx=5, pady=(0, 5), sticky="ew")
+
+        ctk.CTkLabel(filter_frame, text="Data Inicial:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=3, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_dini = ctk.CTkEntry(filter_frame, placeholder_text="DD/MM/YYYY", width=100)
+        self.db_filter_dini.grid(row=1, column=3, padx=5, pady=(0, 5), sticky="ew")
         self.db_filter_dini.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.db_filter_dini, e))
 
-        ctk.CTkLabel(filter_frame, text="Data Final:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=3, padx=5, pady=(5, 2), sticky="w")
-        self.db_filter_dfim = ctk.CTkEntry(filter_frame, placeholder_text="DD/MM/YYYY", width=110)
-        self.db_filter_dfim.grid(row=1, column=3, padx=5, pady=(0, 5), sticky="ew")
+        ctk.CTkLabel(filter_frame, text="Data Final:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=4, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_dfim = ctk.CTkEntry(filter_frame, placeholder_text="DD/MM/YYYY", width=100)
+        self.db_filter_dfim.grid(row=1, column=4, padx=5, pady=(0, 5), sticky="ew")
         self.db_filter_dfim.bind("<KeyRelease>", lambda e: self._on_date_key_release(self.db_filter_dfim, e))
 
-        ctk.CTkLabel(filter_frame, text="Busca / Texto:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=4, padx=5, pady=(5, 2), sticky="w")
-        self.db_filter_search = ctk.CTkEntry(filter_frame, placeholder_text="Número, Nome, CNPJ...", width=160)
-        self.db_filter_search.grid(row=1, column=4, padx=5, pady=(0, 5), sticky="ew")
+        ctk.CTkLabel(filter_frame, text="Busca / Texto:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=5, padx=5, pady=(5, 2), sticky="w")
+        self.db_filter_search = ctk.CTkEntry(filter_frame, placeholder_text="Número, Nome, CNPJ...", width=140)
+        self.db_filter_search.grid(row=1, column=5, padx=5, pady=(0, 5), sticky="ew")
         self.db_filter_search.bind("<Return>", lambda e: self.refresh_database_view())
 
         # Botões de Ação do Filtro
         btn_filter_frame = ctk.CTkFrame(filter_frame, fg_color="transparent")
-        btn_filter_frame.grid(row=2, column=0, columnspan=5, padx=5, pady=(2, 6), sticky="e")
+        btn_filter_frame.grid(row=2, column=0, columnspan=6, padx=5, pady=(2, 6), sticky="e")
 
         self.btn_db_filter = ctk.CTkButton(btn_filter_frame, text="🔎 Filtrar", width=90, height=28, command=self.refresh_database_view)
         self.btn_db_filter.pack(side="right", padx=5)
@@ -726,11 +765,12 @@ class App(_AppBase):
         table_container.grid_columnconfigure(0, weight=1)
         table_container.grid_rowconfigure(0, weight=1)
 
-        columns = ("emissao", "numero", "tipo", "prestador", "tomador", "valor", "iss", "xml", "pdf")
+        columns = ("emissao", "numero", "status", "tipo", "prestador", "tomador", "valor", "iss", "xml", "pdf")
         self.tree_notas = ttk.Treeview(table_container, columns=columns, show="headings", selectmode="browse", height=10)
 
         self.tree_notas.heading("emissao", text="Emissão")
         self.tree_notas.heading("numero", text="Número")
+        self.tree_notas.heading("status", text="Status")
         self.tree_notas.heading("tipo", text="Tipo")
         self.tree_notas.heading("prestador", text="Prestador")
         self.tree_notas.heading("tomador", text="Tomador")
@@ -739,15 +779,20 @@ class App(_AppBase):
         self.tree_notas.heading("xml", text="XML")
         self.tree_notas.heading("pdf", text="PDF")
 
-        self.tree_notas.column("emissao", width=85, anchor="center")
-        self.tree_notas.column("numero", width=75, anchor="center")
-        self.tree_notas.column("tipo", width=70, anchor="center")
-        self.tree_notas.column("prestador", width=170, anchor="w")
-        self.tree_notas.column("tomador", width=170, anchor="w")
+        self.tree_notas.column("emissao", width=80, anchor="center")
+        self.tree_notas.column("numero", width=70, anchor="center")
+        self.tree_notas.column("status", width=85, anchor="center")
+        self.tree_notas.column("tipo", width=65, anchor="center")
+        self.tree_notas.column("prestador", width=160, anchor="w")
+        self.tree_notas.column("tomador", width=160, anchor="w")
         self.tree_notas.column("valor", width=85, anchor="e")
         self.tree_notas.column("iss", width=75, anchor="e")
-        self.tree_notas.column("xml", width=45, anchor="center")
-        self.tree_notas.column("pdf", width=45, anchor="center")
+        self.tree_notas.column("xml", width=40, anchor="center")
+        self.tree_notas.column("pdf", width=40, anchor="center")
+
+        # Tags para estilização visual
+        self.tree_notas.tag_configure("cancelada", foreground="#dc3545")
+        self.tree_notas.tag_configure("autorizada", foreground="")
 
         tree_scroll_y = ttk.Scrollbar(table_container, orient="vertical", command=self.tree_notas.yview)
         self.tree_notas.configure(yscrollcommand=tree_scroll_y.set)
@@ -790,6 +835,7 @@ class App(_AppBase):
     def _clear_db_filters(self):
         self.db_filter_cnpj.delete(0, tk.END)
         self.db_filter_tipo.set("Todos")
+        self.db_filter_status.set("Todos")
         self.db_filter_dini.delete(0, tk.END)
         self.db_filter_dfim.delete(0, tk.END)
         self.db_filter_search.delete(0, tk.END)
@@ -802,6 +848,9 @@ class App(_AppBase):
         cnpj = self.db_filter_cnpj.get().strip()
         tipo_val = self.db_filter_tipo.get().strip()
         tipo = None if tipo_val == "Todos" else tipo_val
+
+        status_val = self.db_filter_status.get().strip()
+        status_param = None if status_val == "Todos" else status_val
 
         # Datas
         dini_str = self.db_filter_dini.get().strip()
@@ -830,12 +879,13 @@ class App(_AppBase):
         try:
             summary = database.get_financial_summary(cnpj=cnpj or None, start_date=start_date, end_date=end_date)
             total_notas = summary.get("total_notas", 0) or 0
+            total_canc = summary.get("total_canceladas", 0) or 0
             fat = summary.get("total_faturado", 0.0) or 0.0
             tom = summary.get("total_tomado_servico", 0.0) or 0.0
             iss = summary.get("total_iss", 0.0) or 0.0
 
             text_sum = (
-                f"Total de Notas: {total_notas}  |  "
+                f"Total de Notas: {total_notas} (Canceladas: {total_canc})  |  "
                 f"Faturado (Prestadas): R$ {fat:,.2f}  |  "
                 f"Tomado: R$ {tom:,.2f}  |  "
                 f"Total ISS: R$ {iss:,.2f}"
@@ -846,7 +896,15 @@ class App(_AppBase):
 
         # Consulta registros
         try:
-            notas = database.query_notas(cnpj=cnpj or None, tipo=tipo, start_date=start_date, end_date=end_date, search_text=search, limit=500)
+            notas = database.query_notas(
+                cnpj=cnpj or None,
+                tipo=tipo,
+                status=status_param,
+                start_date=start_date,
+                end_date=end_date,
+                search_text=search,
+                limit=500
+            )
             for n in notas:
                 dt_str = ""
                 if n.get("data_emissao"):
@@ -856,6 +914,10 @@ class App(_AppBase):
                     except Exception:
                         dt_str = n["data_emissao"]
 
+                status_raw = (n.get("status") or "autorizada").lower()
+                status_display = "CANCELADA" if status_raw == "cancelada" else "Autorizada"
+                tag_name = "cancelada" if status_raw == "cancelada" else "autorizada"
+
                 val_serv = f"R$ {n.get('valor_servico', 0.0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 val_iss = f"R$ {n.get('valor_iss', 0.0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 tem_xml = "SIM" if n.get("caminho_xml") and os.path.isfile(n["caminho_xml"]) else "NÃO"
@@ -864,6 +926,7 @@ class App(_AppBase):
                 item_id = self.tree_notas.insert("", "end", values=(
                     dt_str,
                     n.get("numero_nfse") or "-",
+                    status_display,
                     (n.get("tipo") or "-").capitalize(),
                     n.get("prestador_nome") or n.get("prestador_cnpj_cpf") or "-",
                     n.get("tomador_nome") or n.get("tomador_cnpj_cpf") or "-",
@@ -871,7 +934,7 @@ class App(_AppBase):
                     val_iss,
                     tem_xml,
                     tem_pdf
-                ))
+                ), tags=(tag_name,))
                 self._table_records[item_id] = n
         except Exception as e:
             self.log(f"Erro ao consultar banco de dados: {e}")
@@ -904,7 +967,6 @@ class App(_AppBase):
 
         caminho_xml = nota.get("caminho_xml")
         if caminho_xml and os.path.isfile(caminho_xml):
-            # Tenta gerar o PDF sob demanda
             try:
                 from xml_to_pdf import convert_single_xml
                 if convert_single_xml(caminho_xml, overwrite=True):
@@ -943,10 +1005,12 @@ class App(_AppBase):
             return
 
         try:
-            # Obtém todos os registros da busca atual
             cnpj = self.db_filter_cnpj.get().strip() or None
             tipo_val = self.db_filter_tipo.get().strip()
             tipo = None if tipo_val == "Todos" else tipo_val
+            status_val = self.db_filter_status.get().strip()
+            status_param = None if status_val == "Todos" else status_val
+
             dini_str = self.db_filter_dini.get().strip()
             dfim_str = self.db_filter_dfim.get().strip()
             start_date = None
@@ -957,7 +1021,15 @@ class App(_AppBase):
                 end_date = datetime.strptime(dfim_str, "%d/%m/%Y").date()
             search = self.db_filter_search.get().strip() or None
 
-            notas = database.query_notas(cnpj=cnpj, tipo=tipo, start_date=start_date, end_date=end_date, search_text=search, limit=10000)
+            notas = database.query_notas(
+                cnpj=cnpj,
+                tipo=tipo,
+                status=status_param,
+                start_date=start_date,
+                end_date=end_date,
+                search_text=search,
+                limit=10000
+            )
 
             if not notas:
                 messagebox.showinfo("Exportar CSV", "Nenhuma nota encontrada com os filtros atuais.")
@@ -965,6 +1037,7 @@ class App(_AppBase):
 
             fieldnames = [
                 "chave_acesso", "numero_nfse", "serie", "tipo", "status",
+                "motivo_cancelamento", "data_cancelamento", "nsu_cancelamento",
                 "data_emissao", "data_competencia", "nsu", "cnpj_consultado",
                 "prestador_cnpj_cpf", "prestador_nome", "prestador_im", "prestador_municipio",
                 "tomador_cnpj_cpf", "tomador_nome", "tomador_im", "tomador_municipio",
@@ -1004,6 +1077,7 @@ class App(_AppBase):
         msg = (
             f"Sincronização concluída!\n"
             f"  - XMLs processados/atualizados: {stats.get('xmls_importados', 0)}\n"
+            f"  - Notas canceladas reconhecidas: {stats.get('canceladas_atualizadas', 0)}\n"
             f"  - Entradas NSU indexadas: {stats.get('nsu_index_importados', 0)}\n"
             f"  - Erros encontrados: {stats.get('erros', 0)}"
         )

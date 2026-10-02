@@ -514,7 +514,11 @@ def main():
             
     end_date = None
     while not end_date:
-        end_date = parse_date(input("Data Final: "))
+        inp_dfim = input("Data Final [Deixe vazio para hoje]: ").strip()
+        if not inp_dfim:
+            end_date = date.today()
+            break
+        end_date = parse_date(inp_dfim)
         if not end_date:
             print("Formato inválido! Use DD/MM/YYYY (Ex: 31/05/2026)")
             
@@ -647,6 +651,44 @@ def main():
                         logger.error(f"  [NSU {nsu_item}] Não foi possível extrair o XML do documento.")
                         continue
                         
+                    # Verifica se o documento é um Evento (ex: Cancelamento de NFS-e)
+                    evt_meta = None
+                    try:
+                        evt_meta = database.extract_event_metadata(xml_content)
+                    except Exception:
+                        pass
+
+                    if evt_meta and evt_meta.get("tipo_evento") == "cancelamento":
+                        ch_canc = evt_meta.get("chave_acesso")
+                        mot_canc = evt_meta.get("motivo")
+                        dt_canc_str = evt_meta.get("data_evento")
+                        logger.info(f"  [NSU {nsu_item}] Evento de Cancelamento detectado para NFS-e (Chave: {ch_canc or 'N/A'}, Motivo: {mot_canc or 'N/A'})")
+
+                        # Salva o arquivo XML do evento na subpasta 'eventos/'
+                        eventos_dir = os.path.join(output_dir, "eventos")
+                        os.makedirs(eventos_dir, exist_ok=True)
+                        evt_fname = f"evento_canc_nsu_{nsu_item}.xml"
+                        with open(os.path.join(eventos_dir, evt_fname), "w", encoding="utf-8") as f:
+                            f.write(xml_content)
+
+                        # Atualiza cancelamento no banco de dados e renomeia arquivos existentes para '_cancelada'
+                        if ch_canc:
+                            database.cancel_nota_by_key(
+                                chave_acesso=ch_canc,
+                                motivo=mot_canc,
+                                data_cancelamento=dt_canc_str,
+                                nsu_evento=nsu_item
+                            )
+
+                        # Alimenta o índice de NSU
+                        if cnpj_label and env_choice and dt_canc_str:
+                            try:
+                                dt_canc_date = datetime.strptime(dt_canc_str, "%Y-%m-%d").date()
+                                save_nsu_index_entry(cnpj_label, env_choice, nsu_item, dt_canc_date)
+                            except Exception:
+                                pass
+                        continue
+
                     dt = get_emission_date(xml_content)
                     if not dt:
                         logger.warning(f"  [NSU {nsu_item}] Data de emissão não encontrada no XML. Salvando em 'sem_data'.")
@@ -688,15 +730,31 @@ def main():
                             tipo_dir = output_dir
                             logger.info(f"    -> Tipo de serviço indeterminado, salvando na raiz")
                         
+                        # Verifica se a nota já foi cancelada previamente
+                        is_cancelada = False
+                        meta_check = database.extract_nota_metadata(xml_content, cnpj_consultado=cnpj_label)
+                        if meta_check:
+                            ch_check = meta_check.get("chave_acesso")
+                            if ch_check:
+                                conn_ck = database.get_connection()
+                                try:
+                                    row_ck = conn_ck.execute("SELECT status FROM notas_fiscais WHERE chave_acesso = ?", (ch_check,)).fetchone()
+                                    if row_ck and row_ck["status"] == "cancelada":
+                                        is_cancelada = True
+                                finally:
+                                    conn_ck.close()
+
+                        suffix = "_cancelada" if (is_cancelada or (meta_check and meta_check.get("status") == "cancelada")) else ""
+
                         nfse_num = get_nfse_number(xml_content)
                         if nfse_num:
                             try:
                                 formatted_num = f"{int(nfse_num):06d}"
                             except ValueError:
                                 formatted_num = nfse_num.zfill(6)[-6:]
-                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_{formatted_num}"
+                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_{formatted_num}{suffix}"
                         else:
-                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_nsu_{nsu_item}"
+                            file_base = f"NFSe_{dt.strftime('%Y%m%d')}_nsu_{nsu_item}{suffix}"
                         xml_file_path = os.path.join(tipo_dir, f"{file_base}.xml")
                         
                         with open(xml_file_path, "w", encoding="utf-8") as f:
@@ -717,7 +775,7 @@ def main():
 
                         # Salva / Atualiza metadados no SQLite
                         try:
-                            meta = database.extract_nota_metadata(xml_content, cnpj_consultado=cnpj_label)
+                            meta = meta_check or database.extract_nota_metadata(xml_content, cnpj_consultado=cnpj_label)
                             if meta:
                                 meta["caminho_xml"] = os.path.abspath(xml_file_path)
                                 if pdf_file_path and os.path.isfile(pdf_file_path):
@@ -725,6 +783,8 @@ def main():
                                 meta["nsu"] = nsu_item
                                 if tipo_servico:
                                     meta["tipo"] = tipo_servico
+                                if is_cancelada:
+                                    meta["status"] = "cancelada"
                                 database.upsert_nota_fiscal(meta)
                         except Exception as db_err:
                             logger.debug(f"    -> Aviso: Erro ao persistir metadados no banco de dados: {db_err}")
