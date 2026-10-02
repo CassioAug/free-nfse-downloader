@@ -1,4 +1,5 @@
 import os
+import re
 import pymupdf as fitz
 from PIL import Image
 
@@ -11,24 +12,31 @@ icons = [
     (
         "fa_sun.svg",
         [
-            ("fa_sun_light.png", "#F8FAFC"),   # For dark theme UI
-            ("fa_sun_dark.png", "#0F172A"),    # For light theme UI
-            ("fa_sun_amber.png", "#D97706"),   # Accent amber
+            ("fa_sun_white.png", "#FFFFFF"),
+            ("fa_sun_light.png", "#F8FAFC"),
+            ("fa_sun_dark.png", "#0F172A"),
+            ("fa_sun_muted_light.png", "#64748B"),
+            ("fa_sun_muted_dark.png", "#94A3B8"),
         ]
     ),
     (
         "fa_moon.svg",
         [
-            ("fa_moon_light.png", "#F8FAFC"),  # For dark theme UI
-            ("fa_moon_dark.png", "#0F172A"),   # For light theme UI
-            ("fa_moon_indigo.png", "#6366F1"), # Accent indigo
+            ("fa_moon_white.png", "#FFFFFF"),
+            ("fa_moon_light.png", "#F8FAFC"),
+            ("fa_moon_dark.png", "#0F172A"),
+            ("fa_moon_muted_light.png", "#64748B"),
+            ("fa_moon_muted_dark.png", "#94A3B8"),
         ]
     ),
     (
         "fa_gears.svg",
         [
-            ("fa_gears_light.png", "#F8FAFC"), # For dark theme UI
-            ("fa_gears_dark.png", "#0F172A"),  # For light theme UI
+            ("fa_gears_white.png", "#FFFFFF"),
+            ("fa_gears_light.png", "#F8FAFC"),
+            ("fa_gears_dark.png", "#0F172A"),
+            ("fa_gears_muted_light.png", "#64748B"),
+            ("fa_gears_muted_dark.png", "#94A3B8"),
         ]
     ),
     (
@@ -71,6 +79,46 @@ icons = [
             ("github_mark_light.png", "#F8FAFC"),
             ("github_mark_dark.png", "#0F172A"),
         ]
+    ),
+    (
+        "fa_magnifying_glass.svg",
+        [
+            ("fa_magnifying_glass_white.png", "#FFFFFF"),
+            ("fa_magnifying_glass_light.png", "#F8FAFC"),
+            ("fa_magnifying_glass_dark.png", "#0F172A"),
+        ]
+    ),
+    (
+        "fa_file_csv.svg",
+        [
+            ("fa_file_csv_white.png", "#FFFFFF"),
+            ("fa_file_csv_light.png", "#F8FAFC"),
+            ("fa_file_csv_dark.png", "#0F172A"),
+        ]
+    ),
+    (
+        "fa_file_pdf.svg",
+        [
+            ("fa_file_pdf_white.png", "#FFFFFF"),
+            ("fa_file_pdf_light.png", "#F8FAFC"),
+            ("fa_file_pdf_dark.png", "#0F172A"),
+        ]
+    ),
+    (
+        "fa_file_lines.svg",
+        [
+            ("fa_file_lines_white.png", "#FFFFFF"),
+            ("fa_file_lines_light.png", "#F8FAFC"),
+            ("fa_file_lines_dark.png", "#0F172A"),
+        ]
+    ),
+    (
+        "fa_arrows_rotate.svg",
+        [
+            ("fa_arrows_rotate_white.png", "#FFFFFF"),
+            ("fa_arrows_rotate_light.png", "#F8FAFC"),
+            ("fa_arrows_rotate_dark.png", "#0F172A"),
+        ]
     )
 ]
 
@@ -86,18 +134,22 @@ for svg_file, variants in icons:
     for out_name, color in variants:
         # Inject fill color into <path ...>
         if "<path fill=" in svg_content:
-            # Replace existing fill
-            import re
             colored_svg = re.sub(r'fill="[^"]+"', f'fill="{color}"', svg_content)
         else:
             colored_svg = svg_content.replace("<path ", f'<path fill="{color}" ')
         
         doc = fitz.open(stream=colored_svg.encode("utf-8"), filetype="svg")
         pix = doc[0].get_pixmap(dpi=300, alpha=True)
-        out_path = os.path.join(img_dir, out_name)
-        pix.save(out_path)
-        
-        im = Image.open(out_path)
-        print(f"Generated {out_name}: size={im.size}, mode={im.mode}, corner_alpha={im.getpixel((0,0))[-1]}")
+        raw_im = Image.frombytes("RGBA", [pix.width, pix.height], pix.samples)
 
-print("All FontAwesome and GitHub icons successfully rendered!")
+        # Center in a true square canvas (1:1 aspect ratio) with zero distortion
+        max_dim = max(raw_im.width, raw_im.height)
+        square_im = Image.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
+        offset = ((max_dim - raw_im.width) // 2, (max_dim - raw_im.height) // 2)
+        square_im.paste(raw_im, offset)
+
+        out_path = os.path.join(img_dir, out_name)
+        square_im.save(out_path)
+        print(f"Generated {out_name}: raw_size={raw_im.size} -> square_size={square_im.size}, offset={offset}")
+
+print("All icons successfully rendered with 1:1 square aspect ratio!")

@@ -163,14 +163,20 @@ class App(_AppBase):
         top_bar.grid_columnconfigure(0, weight=1)
         top_bar.grid_columnconfigure(1, weight=0)
 
-        theme_frame = ctk.CTkFrame(top_bar, fg_color=("#E2E8F0", "#1E293B"), corner_radius=8)
+        theme_frame = ctk.CTkFrame(
+            top_bar,
+            fg_color=("#F1F5F9", "#0F172A"),
+            border_width=1,
+            border_color=("#CBD5E1", "#334155"),
+            corner_radius=8
+        )
         theme_frame.grid(row=0, column=1, sticky="e")
 
         self.btn_theme_light = ctk.CTkButton(
             theme_frame,
             text="",
-            image=self.icon_sun,
-            width=36,
+            image=self.icon_sun_muted,
+            width=38,
             height=30,
             corner_radius=6,
             command=lambda: self._set_theme("Light")
@@ -180,8 +186,8 @@ class App(_AppBase):
         self.btn_theme_dark = ctk.CTkButton(
             theme_frame,
             text="",
-            image=self.icon_moon,
-            width=36,
+            image=self.icon_moon_muted,
+            width=38,
             height=30,
             corner_radius=6,
             command=lambda: self._set_theme("Dark")
@@ -191,8 +197,8 @@ class App(_AppBase):
         self.btn_theme_sys = ctk.CTkButton(
             theme_frame,
             text="",
-            image=self.icon_gears,
-            width=36,
+            image=self.icon_gears_muted,
+            width=38,
             height=30,
             corner_radius=6,
             command=lambda: self._set_theme("System")
@@ -201,8 +207,38 @@ class App(_AppBase):
 
         self._update_theme_buttons_ui(saved_theme)
 
-        self.tabview = ctk.CTkTabview(self)
+        self.tabview = ctk.CTkTabview(
+            self,
+            segmented_button_selected_color=("#1D4ED8", "#2563EB"),
+            segmented_button_selected_hover_color=("#1E40AF", "#1D4ED8"),
+            segmented_button_unselected_color=("#E2E8F0", "#1E293B"),
+            segmented_button_unselected_hover_color=("#CBD5E1", "#334155"),
+            segmented_button_fg_color=("#F1F5F9", "#0F172A"),
+            text_color=("#0F172A", "#F8FAFC")
+        )
         self.tabview.grid(row=2, column=0, padx=20, pady=(6, 10), sticky="nsew")
+
+        # Configura fonte em negrito e contraste dinâmico de texto das abas (ativo: branco, inativo: preto/cinza)
+        self.tabview._segmented_button.configure(
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=("#0F172A", "#F8FAFC")
+        )
+
+        _orig_tab_select = self.tabview._segmented_button._select_button_by_value
+        _orig_tab_unselect = self.tabview._segmented_button._unselect_button_by_value
+
+        def _custom_tab_select(val):
+            _orig_tab_select(val)
+            if val in self.tabview._segmented_button._buttons_dict:
+                self.tabview._segmented_button._buttons_dict[val].configure(text_color="#FFFFFF")
+
+        def _custom_tab_unselect(val):
+            _orig_tab_unselect(val)
+            if val in self.tabview._segmented_button._buttons_dict:
+                self.tabview._segmented_button._buttons_dict[val].configure(text_color=("#0F172A", "#F8FAFC"))
+
+        self.tabview._segmented_button._select_button_by_value = _custom_tab_select
+        self.tabview._segmented_button._unselect_button_by_value = _custom_tab_unselect
 
         self.tab_download = self.tabview.add("Download NFS-e")
         self.tab_convert_pfx = self.tabview.add("Converter PFX/P12")
@@ -210,6 +246,8 @@ class App(_AppBase):
         self.tab_xml_pdf = self.tabview.add("XML para PDF")
         self.tab_database = self.tabview.add("Banco de Dados")
         self.tab_about = self.tabview.add("Sobre")
+
+        self.tabview.set("Download NFS-e")
 
         self.setup_download_tab()
         self.setup_convert_pfx_tab()
@@ -232,55 +270,117 @@ class App(_AppBase):
         img_dir = os.path.join(BASE_DIR, "docs", "images")
         try:
             from PIL import Image
-            self.icon_sun = ctk.CTkImage(
-                light_image=Image.open(os.path.join(img_dir, "fa_sun_dark.png")),
-                dark_image=Image.open(os.path.join(img_dir, "fa_sun_light.png")),
-                size=(16, 16)
+            # Ícones do seletor de tema
+            self.icon_sun_white = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_sun_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_sun_white.png")),
+                size=(18, 18)
             )
-            self.icon_moon = ctk.CTkImage(
-                light_image=Image.open(os.path.join(img_dir, "fa_moon_dark.png")),
-                dark_image=Image.open(os.path.join(img_dir, "fa_moon_light.png")),
-                size=(16, 16)
+            self.icon_sun_muted = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_sun_muted_light.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_sun_muted_dark.png")),
+                size=(18, 18)
             )
-            self.icon_gears = ctk.CTkImage(
-                light_image=Image.open(os.path.join(img_dir, "fa_gears_dark.png")),
-                dark_image=Image.open(os.path.join(img_dir, "fa_gears_light.png")),
-                size=(16, 16)
+
+            self.icon_moon_white = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_moon_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_moon_white.png")),
+                size=(18, 18)
             )
+            self.icon_moon_muted = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_moon_muted_light.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_moon_muted_dark.png")),
+                size=(18, 18)
+            )
+
+            self.icon_gears_white = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_gears_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_gears_white.png")),
+                size=(18, 18)
+            )
+            self.icon_gears_muted = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_gears_muted_light.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_gears_muted_dark.png")),
+                size=(18, 18)
+            )
+
+            # Ícones de Ação e Tabela
             self.icon_play = ctk.CTkImage(
                 light_image=Image.open(os.path.join(img_dir, "fa_circle_play_white.png")),
                 dark_image=Image.open(os.path.join(img_dir, "fa_circle_play_white.png")),
-                size=(16, 16)
+                size=(18, 18)
             )
             self.icon_cancel_active = ctk.CTkImage(
                 light_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_white.png")),
                 dark_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_white.png")),
-                size=(16, 16)
+                size=(18, 18)
             )
             self.icon_cancel_disabled = ctk.CTkImage(
                 light_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_disabled_light.png")),
                 dark_image=Image.open(os.path.join(img_dir, "fa_circle_xmark_disabled_dark.png")),
-                size=(16, 16)
+                size=(18, 18)
             )
             self.icon_update = ctk.CTkImage(
                 light_image=Image.open(os.path.join(img_dir, "fa_cloud_arrow_up_white.png")),
                 dark_image=Image.open(os.path.join(img_dir, "fa_cloud_arrow_up_white.png")),
-                size=(16, 16)
+                size=(18, 18)
             )
             self.icon_trash = ctk.CTkImage(
                 light_image=Image.open(os.path.join(img_dir, "fa_trash_dark.png")),
                 dark_image=Image.open(os.path.join(img_dir, "fa_trash_light.png")),
-                size=(15, 15)
+                size=(18, 18)
             )
             self.icon_github = ctk.CTkImage(
                 light_image=Image.open(os.path.join(img_dir, "github_mark_white.png")),
                 dark_image=Image.open(os.path.join(img_dir, "github_mark_white.png")),
-                size=(18, 18)
+                size=(20, 20)
+            )
+
+            # Novos ícones Font Awesome (Pesquisa, Arquivos e Sincronização)
+            self.icon_search = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_magnifying_glass_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_magnifying_glass_light.png")),
+                size=(16, 16)
+            )
+            self.icon_search_white = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_magnifying_glass_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_magnifying_glass_white.png")),
+                size=(16, 16)
+            )
+            self.icon_csv = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_file_csv_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_file_csv_light.png")),
+                size=(16, 16)
+            )
+            self.icon_pdf = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_file_pdf_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_file_pdf_light.png")),
+                size=(16, 16)
+            )
+            self.icon_xml = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_file_lines_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_file_lines_light.png")),
+                size=(16, 16)
+            )
+            self.icon_sync = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_arrows_rotate_dark.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_arrows_rotate_light.png")),
+                size=(16, 16)
+            )
+            self.icon_sync_white = ctk.CTkImage(
+                light_image=Image.open(os.path.join(img_dir, "fa_arrows_rotate_white.png")),
+                dark_image=Image.open(os.path.join(img_dir, "fa_arrows_rotate_white.png")),
+                size=(16, 16)
             )
         except Exception:
-            self.icon_sun = self.icon_moon = self.icon_gears = None
+            self.icon_sun_white = self.icon_sun_muted = None
+            self.icon_moon_white = self.icon_moon_muted = None
+            self.icon_gears_white = self.icon_gears_muted = None
             self.icon_play = self.icon_cancel_active = self.icon_cancel_disabled = None
             self.icon_update = self.icon_trash = self.icon_github = None
+            self.icon_search = self.icon_search_white = None
+            self.icon_csv = self.icon_pdf = self.icon_xml = None
+            self.icon_sync = self.icon_sync_white = None
 
     def _set_theme(self, mode_str):
         ctk.set_appearance_mode(mode_str)
@@ -290,22 +390,24 @@ class App(_AppBase):
         self._apply_treeview_theme(mode_str if mode_str != "System" else None)
 
     def _update_theme_buttons_ui(self, current_theme):
-        buttons = {
-            "Light": getattr(self, "btn_theme_light", None),
-            "Dark": getattr(self, "btn_theme_dark", None),
-            "System": getattr(self, "btn_theme_sys", None)
+        theme_map = {
+            "Light": (getattr(self, "btn_theme_light", None), self.icon_sun_white, self.icon_sun_muted),
+            "Dark": (getattr(self, "btn_theme_dark", None), self.icon_moon_white, self.icon_moon_muted),
+            "System": (getattr(self, "btn_theme_sys", None), self.icon_gears_white, self.icon_gears_muted),
         }
-        for mode, btn in buttons.items():
+        for mode, (btn, active_icon, muted_icon) in theme_map.items():
             if btn:
                 if mode == current_theme:
                     btn.configure(
                         fg_color=("#1D4ED8", "#2563EB"),
-                        hover_color=("#1E40AF", "#1D4ED8")
+                        hover_color=("#1E40AF", "#1D4ED8"),
+                        image=active_icon
                     )
                 else:
                     btn.configure(
                         fg_color="transparent",
-                        hover_color=("#CBD5E1", "#334155")
+                        hover_color=("#E2E8F0", "#334155"),
+                        image=muted_icon
                     )
 
     def _maximize_window(self):
@@ -672,8 +774,8 @@ class App(_AppBase):
             image=self.icon_play,
             compound="left",
             font=ctk.CTkFont(size=13, weight="bold"),
-            width=175,
-            height=36,
+            width=185,
+            height=38,
             fg_color=("#1D4ED8", "#2563EB"),
             hover_color=("#1E40AF", "#1D4ED8"),
             text_color="#FFFFFF",
@@ -687,8 +789,8 @@ class App(_AppBase):
             image=self.icon_cancel_disabled,
             compound="left",
             font=ctk.CTkFont(size=13, weight="bold"),
-            width=175,
-            height=36,
+            width=185,
+            height=38,
             fg_color=("#E2E8F0", "#1E293B"),
             hover_color=("#E2E8F0", "#1E293B"),
             text_color=("#94A3B8", "#64748B"),
@@ -794,7 +896,6 @@ class App(_AppBase):
             "Erro no Download."
         )
 
-
     def setup_convert_pfx_tab(self):
         frame = ctk.CTkFrame(self.tab_convert_pfx)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -816,8 +917,14 @@ class App(_AppBase):
         self.pfx_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_pfx = ctk.CTkButton(
-            frame, text="Procurar...", width=100, height=32,
-            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            frame,
+            text=" Procurar...",
+            image=self.icon_search,
+            compound="left",
+            width=120,
+            height=34,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
             command=self.browse_pfx
         )
@@ -835,7 +942,7 @@ class App(_AppBase):
 
         # Start Button
         self.btn_convert_pfx = ctk.CTkButton(
-            frame, text="Converter PFX -> PEM", width=220, height=36,
+            frame, text="Converter PFX -> PEM", width=230, height=38,
             font=ctk.CTkFont(size=13, weight="bold"),
             fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
             text_color="#FFFFFF",
@@ -890,8 +997,14 @@ class App(_AppBase):
         self.org_dir_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_org = ctk.CTkButton(
-            frame, text="Procurar...", width=100, height=32,
-            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            frame,
+            text=" Procurar...",
+            image=self.icon_search,
+            compound="left",
+            width=120,
+            height=34,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
             command=self.browse_org
         )
@@ -904,7 +1017,7 @@ class App(_AppBase):
 
         # Start Button
         self.btn_organize = ctk.CTkButton(
-            frame, text="Organizar Notas", width=220, height=36,
+            frame, text="Organizar Notas", width=230, height=38,
             font=ctk.CTkFont(size=13, weight="bold"),
             fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
             text_color="#FFFFFF",
@@ -952,8 +1065,14 @@ class App(_AppBase):
         self.xml_input_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_xml = ctk.CTkButton(
-            frame, text="Procurar...", width=100, height=32,
-            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            frame,
+            text=" Procurar...",
+            image=self.icon_search,
+            compound="left",
+            width=120,
+            height=34,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
             command=self.browse_xml
         )
@@ -965,11 +1084,18 @@ class App(_AppBase):
         self.pdf_out_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
 
         self.btn_browse_pdf_out = ctk.CTkButton(
-            frame, text="Procurar...", width=100, height=32,
-            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            frame,
+            text=" Procurar...",
+            image=self.icon_search,
+            compound="left",
+            width=120,
+            height=34,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
             command=self.browse_pdf_out
         )
+        self.btn_browse_pdf_out.grid(row=2, column=2, padx=10, pady=10)
         self.btn_browse_pdf_out.grid(row=2, column=2, padx=10, pady=10)
 
         # Force overwrite
@@ -979,7 +1105,7 @@ class App(_AppBase):
 
         # Start Button
         self.btn_convert_xml = ctk.CTkButton(
-            frame, text="Converter XML -> PDF", width=220, height=36,
+            frame, text="Converter XML -> PDF", width=230, height=38,
             font=ctk.CTkFont(size=13, weight="bold"),
             fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
             text_color="#FFFFFF",
@@ -1036,11 +1162,35 @@ class App(_AppBase):
         self.db_filter_cnpj.grid(row=1, column=0, padx=5, pady=(0, 5), sticky="ew")
 
         ctk.CTkLabel(filter_frame, text="Tipo:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=1, padx=5, pady=(5, 2), sticky="w")
-        self.db_filter_tipo = ctk.CTkOptionMenu(filter_frame, values=["Todos", "prestado", "tomado"], width=100)
+        self.db_filter_tipo = ctk.CTkOptionMenu(
+            filter_frame,
+            values=["Todos", "prestado", "tomado"],
+            width=110,
+            height=32,
+            fg_color=("#1D4ED8", "#2563EB"),
+            button_color=("#1E40AF", "#1D4ED8"),
+            button_hover_color=("#172554", "#1E40AF"),
+            text_color="#FFFFFF",
+            dropdown_fg_color=("#FFFFFF", "#1E293B"),
+            dropdown_hover_color=("#E2E8F0", "#334155"),
+            dropdown_text_color=("#0F172A", "#F8FAFC")
+        )
         self.db_filter_tipo.grid(row=1, column=1, padx=5, pady=(0, 5), sticky="ew")
 
         ctk.CTkLabel(filter_frame, text="Status:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=2, padx=5, pady=(5, 2), sticky="w")
-        self.db_filter_status = ctk.CTkOptionMenu(filter_frame, values=["Todos", "autorizada", "cancelada"], width=110)
+        self.db_filter_status = ctk.CTkOptionMenu(
+            filter_frame,
+            values=["Todos", "autorizada", "cancelada"],
+            width=120,
+            height=32,
+            fg_color=("#1D4ED8", "#2563EB"),
+            button_color=("#1E40AF", "#1D4ED8"),
+            button_hover_color=("#172554", "#1E40AF"),
+            text_color="#FFFFFF",
+            dropdown_fg_color=("#FFFFFF", "#1E293B"),
+            dropdown_hover_color=("#E2E8F0", "#334155"),
+            dropdown_text_color=("#0F172A", "#F8FAFC")
+        )
         self.db_filter_status.grid(row=1, column=2, padx=5, pady=(0, 5), sticky="ew")
 
         ctk.CTkLabel(filter_frame, text="Data Inicial:", font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=3, padx=5, pady=(5, 2), sticky="w")
@@ -1063,9 +1213,15 @@ class App(_AppBase):
         btn_filter_frame.grid(row=2, column=0, columnspan=6, padx=5, pady=(2, 6), sticky="e")
 
         self.btn_db_filter = ctk.CTkButton(
-            btn_filter_frame, text="🔎 Filtrar", width=95, height=28,
+            btn_filter_frame,
+            text=" Filtrar",
+            image=self.icon_search_white,
+            compound="left",
+            width=105,
+            height=32,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#1D4ED8", "#2563EB"), hover_color=("#1E40AF", "#1D4ED8"),
+            fg_color=("#1D4ED8", "#2563EB"),
+            hover_color=("#1E40AF", "#1D4ED8"),
             text_color="#FFFFFF",
             command=self.refresh_database_view
         )
@@ -1076,8 +1232,8 @@ class App(_AppBase):
             text=" Limpar",
             image=self.icon_trash,
             compound="left",
-            width=90,
-            height=28,
+            width=95,
+            height=32,
             fg_color=("#E2E8F0", "#334155"),
             text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
@@ -1148,33 +1304,57 @@ class App(_AppBase):
         actions_bar.grid(row=3, column=0, padx=10, pady=(5, 10), sticky="ew")
 
         self.btn_open_xml = ctk.CTkButton(
-            actions_bar, text="📄 Abrir XML", width=110, height=32,
-            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            actions_bar,
+            text=" Abrir XML",
+            image=self.icon_xml,
+            compound="left",
+            width=125,
+            height=36,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
             command=self.open_selected_xml
         )
         self.btn_open_xml.pack(side="left", padx=(0, 8))
 
         self.btn_open_pdf = ctk.CTkButton(
-            actions_bar, text="📑 Abrir DANFSE (PDF)", width=150, height=32,
-            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            actions_bar,
+            text=" Abrir DANFSE (PDF)",
+            image=self.icon_pdf,
+            compound="left",
+            width=175,
+            height=36,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
             command=self.open_selected_pdf
         )
         self.btn_open_pdf.pack(side="left", padx=(0, 8))
 
         self.btn_export_csv = ctk.CTkButton(
-            actions_bar, text="📊 Exportar CSV", width=120, height=32,
-            fg_color=("#E2E8F0", "#334155"), text_color=("#0F172A", "#F8FAFC"),
+            actions_bar,
+            text=" Exportar CSV",
+            image=self.icon_csv,
+            compound="left",
+            width=140,
+            height=36,
+            fg_color=("#E2E8F0", "#334155"),
+            text_color=("#0F172A", "#F8FAFC"),
             hover_color=("#CBD5E1", "#475569"),
             command=self.export_database_csv
         )
         self.btn_export_csv.pack(side="left", padx=(0, 8))
 
         self.btn_sync_db = ctk.CTkButton(
-            actions_bar, text="🔄 Importar / Sincronizar Arquivos Locais", width=240, height=32,
+            actions_bar,
+            text=" Importar / Sincronizar Arquivos Locais",
+            image=self.icon_sync_white,
+            compound="left",
+            width=275,
+            height=36,
             font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#15803D", "#16A34A"), hover_color=("#166534", "#15803D"),
+            fg_color=("#15803D", "#16A34A"),
+            hover_color=("#166534", "#15803D"),
             text_color="#FFFFFF",
             command=self.sync_local_files_to_db
         )
@@ -1493,8 +1673,8 @@ class App(_AppBase):
             hover_color=("#1E40AF", "#1D4ED8"),
             text_color="#FFFFFF",
             command=self.manual_check_updates,
-            width=240,
-            height=34
+            width=250,
+            height=38
         )
         self.btn_check_update.pack(pady=(0, 8), padx=15)
 
@@ -1525,8 +1705,8 @@ class App(_AppBase):
             hover_color=("#1E40AF", "#1D4ED8"),
             text_color="#FFFFFF",
             command=lambda: webbrowser.open("https://github.com/CassioAug/free-nfse-downloader"),
-            width=320,
-            height=38
+            width=340,
+            height=42
         )
         btn_github.pack(pady=(0, 18))
 
