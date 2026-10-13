@@ -72,8 +72,9 @@ class TestNsuLocationCache(unittest.TestCase):
         )
         self.assertEqual(nsu_inicial, 1)
 
+    @patch("nsu_index.load_nsu_index", return_value={})
     @patch("nsu_index._extend_nsu_index")
-    def test_locate_nsu_by_date_ignore_cache_bypasses(self, mock_extend):
+    def test_locate_nsu_by_date_ignore_cache_bypasses(self, mock_extend, mock_load_idx):
         cnpj = "13043647000142"
         env = "1"
         target_date = date(2026, 8, 1)

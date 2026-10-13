@@ -160,11 +160,28 @@ def list_windows_store_certs(store_location="My", use_current_user=True):
     return certs
 
 def is_token_certificate(cert_info):
-    """Verifica se o certificado é de um token (A3) baseado no Provider"""
+    """
+    Verifica se o certificado é de token/smart card (A3).
+    Utiliza critérios universais:
+      1. Subsistema de Smart Card do Windows ('smart card') ou SafeSign/IC Standard.
+      2. Padrão oficial ICP-Brasil no Subject (ex.: 'e-CNPJ A3', 'e-CPF A3') com chave em hardware.
+    """
     if not cert_info:
         return False
-    provider = cert_info.get('provider', '') or ''
-    return 'SafeSign' in provider or 'IC Standard' in provider
+
+    provider = (cert_info.get('provider', '') or '').lower()
+    subject = (cert_info.get('subject', '') or '').upper()
+
+    # 1. Indicadores genéricos de Smart Card / Token de hardware no Provider
+    if "smart card" in provider or "safesign" in provider or "ic standard" in provider:
+        return True
+
+    # 2. Padrão oficial ICP-Brasil no Subject (ex.: 'OU=RFB e-CNPJ A3', 'OU=e-CPF A3')
+    # Ignora se for o provider padrão de software A1 do Windows
+    if (" A3" in subject or "-A3" in subject or " A-3" in subject) and "enhanced cryptographic provider" not in provider:
+        return True
+
+    return False
 
 def list_token_certs():
     """Lista apenas certificados de token (A3) no Windows Store"""
@@ -190,7 +207,7 @@ def list_a3_certs_pretty():
 
     if not token_certs:
         safe_print("Nenhum certificado de token (A3) encontrado no Windows Certificate Store.")
-        safe_print("Verifique se o token está conectado e se o driver SafeSign está instalado.")
+        safe_print("Verifique se o token/leitora está conectado e se os drivers ou minidriver estão instalados.")
         return []
 
     safe_print(f"\nEncontrados {len(token_certs)} certificado(s) de token (A3):\n")
