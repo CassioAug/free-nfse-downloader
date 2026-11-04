@@ -218,6 +218,20 @@ API_URLS = {
     "2": "https://adn.producaorestrita.nfse.gov.br/contribuintes" # Homologação
 }
 
+
+def _com_cnpj_consulta(url, cnpj):
+    """Acrescenta cnpjConsulta à consulta de DFe.
+
+    O ADN passou a rejeitar a consulta implícita (TipoConsulta
+    "InscricaoCertificado") com HTTP 400 e Erros vazio. Informar o CNPJ
+    do próprio certificado explicitamente faz a consulta funcionar.
+    """
+    if not cnpj or "cnpjConsulta=" in url:
+        return url
+    separador = "&" if "?" in url else "?"
+    return f"{url}{separador}cnpjConsulta={cnpj}"
+
+
 def parse_date(date_str):
     try:
         s = str(date_str).strip()
@@ -547,6 +561,9 @@ def main():
             if len(m) == 14:
                 cnpj_label = m
 
+    if not cnpj_label:
+        print("\nAviso: CNPJ não identificado; a consulta será feita sem 'cnpjConsulta' e o ADN pode rejeitar com HTTP 400.")
+
     # Ambiente: sempre produção
     env_choice = "1"
     base_url = API_URLS["1"]
@@ -609,10 +626,11 @@ def main():
     else:
         session = None
         playwright_client = cert_handler.PlaywrightA3Client()
-        playwright_client.initialize(f"{base_url}/DFe/1")
+        playwright_client.initialize(_com_cnpj_consulta(f"{base_url}/DFe/1", cnpj_label))
 
     def do_download(url):
         """Executa o download usando o método apropriado (PEM ou A3)"""
+        url = _com_cnpj_consulta(url, cnpj_label)
         if cert_type == "PEM":
             response = session.get(url, timeout=30)
             return response.status_code, response.text, None
@@ -880,6 +898,11 @@ def main():
                 request_delay = min(request_delay * 2, 15.0)
                 logger.warning(f"Limite de requisições (429). Aguardando {request_delay:.0f}s e reduzindo ritmo...")
                 time.sleep(request_delay)
+            elif status_code == 400:
+                detalhe = (response_text or "").strip().replace("\n", " ")[:500]
+                logger.error(f"Requisição rejeitada pelo ADN (HTTP 400) no NSU {nsu}: {detalhe}")
+                logger.error("Encerrando: rejeição do ADN não é recuperável. Verifique o corpo da resposta acima.")
+                break
             elif error_msg:
                 logger.error(f"Erro ao buscar NSU {nsu}: {error_msg}")
                 nsu += 1

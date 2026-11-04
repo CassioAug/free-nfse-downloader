@@ -62,6 +62,31 @@ class TestDownloadHelpers(unittest.TestCase):
         xml = '<NFSe><infNFSe Id="NFS31062002222692924000139000000000006326047074951490"><nNFSe>63</nNFSe></infNFSe></NFSe>'
         self.assertEqual(get_access_key(xml), "31062002222692924000139000000000006326047074951490")
 
+    def test_com_cnpj_consulta(self):
+        from download_nfse import _com_cnpj_consulta
+
+        # Sem CNPJ fornecido ou vazio -> URL inalterada
+        self.assertEqual(_com_cnpj_consulta("https://adn.nfse.gov.br/contribuintes/DFe/1", ""), "https://adn.nfse.gov.br/contribuintes/DFe/1")
+        self.assertEqual(_com_cnpj_consulta("https://adn.nfse.gov.br/contribuintes/DFe/1", None), "https://adn.nfse.gov.br/contribuintes/DFe/1")
+
+        # URL sem query string -> adiciona com '?'
+        self.assertEqual(
+            _com_cnpj_consulta("https://adn.nfse.gov.br/contribuintes/DFe/1", "12345678000199"),
+            "https://adn.nfse.gov.br/contribuintes/DFe/1?cnpjConsulta=12345678000199"
+        )
+
+        # URL já com query string -> adiciona com '&'
+        self.assertEqual(
+            _com_cnpj_consulta("https://adn.nfse.gov.br/contribuintes/DFe/1?foo=bar", "12345678000199"),
+            "https://adn.nfse.gov.br/contribuintes/DFe/1?foo=bar&cnpjConsulta=12345678000199"
+        )
+
+        # URL que já tem cnpjConsulta= -> não duplica
+        self.assertEqual(
+            _com_cnpj_consulta("https://adn.nfse.gov.br/contribuintes/DFe/1?cnpjConsulta=12345678000199", "12345678000199"),
+            "https://adn.nfse.gov.br/contribuintes/DFe/1?cnpjConsulta=12345678000199"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
